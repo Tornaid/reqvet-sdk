@@ -10,8 +10,7 @@ Official JavaScript/TypeScript SDK for the [ReqVet](https://reqvet.com) API — 
 
 - **Upload** an audio recording (`uploadAudio`)
 - **Generate** a veterinary report (`createJob`, `generateReport`)
-- **Track** a job — webhook-first or polling (`getJob`, `waitForJob`)
-- **List** jobs with pagination and filtering (`listJobs`)
+- **Track** jobs — webhook-first or polling (`getJob`, `waitForJob`, `listJobs`)
 - **Amend** a completed report with additional audio (`amendJob`)
 - **Regenerate** with new instructions (`regenerateJob`)
 - **Reformulate** for a specific audience — owner, referral, specialist (`reformulateReport`)
@@ -26,17 +25,37 @@ Official JavaScript/TypeScript SDK for the [ReqVet](https://reqvet.com) API — 
 npm install @reqvet/sdk
 ```
 
-Requires Node.js ≥ 18. Works in modern browsers for the client methods (Blob/FormData required for upload).
+Requires Node.js ≥ 18. Works in modern browsers for client methods (Blob/FormData required for upload).
+
+## Before your first call
+
+Your ReqVet account manager will provide three environment variables:
+
+```bash
+REQVET_API_KEY=rqv_live_...
+REQVET_BASE_URL=https://api.reqvet.com
+REQVET_WEBHOOK_SECRET=...   # only needed if using webhooks
+```
+
+Every job requires a `templateId`. **Call `listTemplates()` first** to discover what's available:
+
+```ts
+const { system, custom } = await reqvet.listTemplates();
+// system = ReqVet-provided templates, visible to all organizations (read-only)
+// custom = templates created by your organization
+
+const templateId = system[0].id;
+```
 
 ## Quick start
 
-### Recommended: webhook flow (server-side)
+### Webhook flow (recommended)
 
 ```ts
 import ReqVet from '@reqvet/sdk';
 
 const reqvet = new ReqVet(process.env.REQVET_API_KEY!, {
-  baseUrl: process.env.REQVET_BASE_URL ?? 'https://api.reqvet.com',
+  baseUrl: process.env.REQVET_BASE_URL,
 });
 
 // 1. Upload the audio
@@ -48,22 +67,36 @@ const job = await reqvet.createJob({
   animalName: 'Rex',
   templateId: 'your-template-uuid',
   callbackUrl: 'https://your-app.com/api/reqvet/webhook',
-  metadata: { consultationId: 'abc123' },
+  metadata: { consultationId: 'abc123' },  // passed through to your webhook
 });
-// job = { job_id: '...', status: 'pending' }
+// { job_id: '...', status: 'pending' }
 ```
 
-### Alternative: polling flow
+Your webhook receives a `job.completed` event:
+
+```json
+{
+  "event": "job.completed",
+  "job_id": "a1b2c3d4-...",
+  "animal_name": "Rex",
+  "html": "<section class=\"cr\">...</section>",
+  "transcription": "Le vétérinaire examine Rex...",
+  "fields": { "espece": "Chien", "poids": 28.5 },
+  "metadata": { "consultationId": "abc123" }
+}
+```
+
+### Polling flow (simpler for development)
 
 ```ts
 const report = await reqvet.generateReport({
   audio: audioFile,
   animalName: 'Rex',
   templateId: 'your-template-uuid',
-  waitForResult: true,            // polls until completed
+  waitForResult: true,
   onStatus: (s) => console.log(s),
 });
-// report = { jobId, html, fields, transcription, cost, metadata }
+// { jobId, html, fields, transcription, cost, metadata }
 ```
 
 ### Verify an incoming webhook
@@ -71,14 +104,21 @@ const report = await reqvet.generateReport({
 ```ts
 import { verifyWebhookSignature } from '@reqvet/sdk/webhooks';
 
-const { ok, reason } = verifyWebhookSignature({
-  secret: process.env.REQVET_WEBHOOK_SECRET!,
-  rawBody,                                        // raw request body as string
-  signature: req.headers['x-reqvet-signature'],
-  timestamp: req.headers['x-reqvet-timestamp'],
-});
+export async function POST(req: NextRequest) {
+  const rawBody = await req.text();
 
-if (!ok) return res.status(401).json({ error: reason });
+  const { ok, reason } = verifyWebhookSignature({
+    secret: process.env.REQVET_WEBHOOK_SECRET!,
+    rawBody,
+    signature: req.headers.get('x-reqvet-signature') ?? '',
+    timestamp: req.headers.get('x-reqvet-timestamp') ?? '',
+  });
+
+  if (!ok) return new Response('Unauthorized', { status: 401 });
+
+  const event = JSON.parse(rawBody);
+  // event.event, event.job_id, event.html, event.metadata ...
+}
 ```
 
 ## API
@@ -91,22 +131,28 @@ if (!ok) return res.status(401).json({ error: reason });
 | `listJobs(options?)` | List jobs with pagination and status filter |
 | `getJob(jobId)` | Get job status and result |
 | `waitForJob(jobId, onStatus?)` | Poll until job completes |
-| `regenerateJob(jobId, options?)` | Regenerate a completed report with new instructions |
+| `regenerateJob(jobId, options?)` | Regenerate a completed report |
 | `amendJob(jobId, params)` | Add an audio complement to a completed job |
-| `reformulateReport(jobId, params)` | Generate an audience-specific version of a report |
+| `reformulateReport(jobId, params)` | Generate an audience-specific version |
 | `listReformulations(jobId)` | List all reformulations for a job |
-| `listTemplates()` | List available templates (`{ custom, system }`) |
+| `listTemplates()` | List available templates (`{ system, custom }`) |
 | `getTemplate(templateId)` | Get a template by ID |
-| `createTemplate(params)` | Create a new template |
+| `createTemplate(params)` | Create a custom template |
 | `updateTemplate(templateId, updates)` | Update a template |
 | `deleteTemplate(templateId)` | Delete a template |
 | `health()` | API health check |
 
-See [SDK_REFERENCE.md](./SDK_REFERENCE.md) for full parameter and response documentation.
+## Webhook events
+
+ReqVet fires 5 event types: `job.completed`, `job.failed`, `job.amended`, `job.amend_failed`, `job.regenerated`.
+
+Failed deliveries are retried 3 times (0s, 2s, 5s). Implement idempotency in your handler — deduplicate on `job_id + event`.
+
+See [SDK_REFERENCE.md §6](./SDK_REFERENCE.md#6-webhook-events) for the full payload structure of each event.
 
 ## TypeScript
 
-Full TypeScript definitions are included. Key types:
+Full TypeScript definitions included:
 
 ```ts
 import type {
@@ -115,14 +161,18 @@ import type {
   ListJobsResult,
   Template,
   ReqVetReformulation,
+  ExtractedFields,
 } from '@reqvet/sdk';
 ```
 
+## Further reading
+
+- [SDK_REFERENCE.md](./SDK_REFERENCE.md) — full parameter and response documentation, all webhook payloads, field schema, error codes
+- [SECURITY.md](./SECURITY.md) — security guidelines, proxy pattern, complete webhook verification example
+
 ## Security
 
-**Never** expose your API key in client-side code. Always use the SDK server-side (Next.js API routes, Express, etc.) and proxy requests from your frontend.
-
-See [SECURITY.md](./SECURITY.md) for complete security guidelines and webhook verification examples.
+**Never** expose your API key in client-side code. Always use the SDK server-side and proxy requests from your frontend. See [SECURITY.md](./SECURITY.md).
 
 ## License
 
