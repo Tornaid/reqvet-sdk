@@ -1,0 +1,42 @@
+{
+  "name": "@reqvet/sdk",
+  "version": "2.2.0",
+  "description": "Official JavaScript SDK for the ReqVet veterinary report generation API.",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./webhooks": {
+      "import": "./src/webhooks.js",
+      "types": "./src/webhooks.d.ts",
+      "default": "./src/webhooks.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["src/", "README.md", "SDK_REFERENCE.md", "CHANGELOG.md", "SECURITY.md"],
+  "keywords": [
+    "reqvet",
+    "veterinary",
+    "transcription",
+    "ai",
+    "sdk"
+  ],
+  "author": "ReqVet <contact@reqvet.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reqvet/reqvet-sdk.git"
+  },
+  "homepage": "https://github.com/reqvet/reqvet-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/reqvet/reqvet-sdk/issues"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
