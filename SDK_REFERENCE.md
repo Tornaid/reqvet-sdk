@@ -1,64 +1,65 @@
-# @reqvet/sdk — Technical Reference
+# @reqvet-sdk/sdk — Référence technique
 
-Complete parameter and response documentation for all SDK methods.
+Documentation complète des paramètres et réponses pour toutes les méthodes du SDK.
 
 ---
 
-## 1) Instantiation
+## 1) Instanciation
 
 ```ts
-import ReqVet from '@reqvet/sdk';
+import ReqVet from '@reqvet-sdk/sdk';
 
 const reqvet = new ReqVet(process.env.REQVET_API_KEY!, {
   baseUrl: process.env.REQVET_BASE_URL ?? 'https://api.reqvet.com',
-  pollInterval: 5000,       // polling interval in ms (default: 5000)
-  timeout: 5 * 60 * 1000,  // max polling wait in ms (default: 300 000 = 5 min)
+  pollInterval: 5000, // intervalle de polling en ms (défaut : 5000)
+  timeout: 5 * 60 * 1000, // attente maximale en polling en ms (défaut : 300 000 = 5 min)
 });
 ```
 
-The API key must start with `rqv_`. An `Error` is thrown immediately if it doesn't.
+La clé API doit commencer par `rqv_`. Une `Error` est levée immédiatement dans le cas contraire.
 
 ---
 
-## 2) Before your first call
+## 2) Avant votre premier appel
 
-### Get your credentials
+### Obtenir vos identifiants
 
-Your ReqVet account manager will provide:
-- `REQVET_API_KEY` — your org API key (`rqv_live_...`)
-- `REQVET_BASE_URL` — the API base URL
-- `REQVET_WEBHOOK_SECRET` — your webhook signing secret (if using webhooks)
+Votre responsable de compte ReqVet vous fournira :
 
-### Discover your templates
+- `REQVET_API_KEY` — votre clé API d'organisation (`rqv_live_...`)
+- `REQVET_BASE_URL` — l'URL de base de l'API
+- `REQVET_WEBHOOK_SECRET` — votre secret de signature webhook (si vous utilisez les webhooks)
 
-Every job requires a `templateId`. Before generating reports, list the templates available to your organization:
+### Découvrir vos templates
+
+Chaque job nécessite un `templateId`. Avant de générer des comptes rendus, listez les templates disponibles pour votre organisation :
 
 ```ts
 const { custom, system } = await reqvet.listTemplates();
-// system = templates created by ReqVet, available to all organizations (read-only)
-// custom = templates created by your organization
-const templateId = system[0].id; // or custom[0].id
+// system = templates créés par ReqVet, disponibles pour toutes les organisations (lecture seule)
+// custom = templates créés par votre organisation
+const templateId = system[0].id; // ou custom[0].id
 ```
 
 ---
 
-## 3) Integration patterns
+## 3) Patterns d'intégration
 
-### A) Webhook-first (recommended for production)
-
-```
-uploadAudio() → createJob({ callbackUrl }) → ReqVet POSTs result to your endpoint
-```
-
-The user can close the browser — the result arrives on your server asynchronously.
-
-### B) Polling (development / simple integrations)
+### A) Webhook en priorité (recommandé pour la production)
 
 ```
-uploadAudio() → createJob() → waitForJob() → report
+uploadAudio() → createJob({ callbackUrl }) → ReqVet POSTe le résultat sur votre endpoint
 ```
 
-Or use the convenience wrapper:
+L'utilisateur peut fermer le navigateur — le résultat arrive sur votre serveur de manière asynchrone.
+
+### B) Polling (développement / intégrations simples)
+
+```
+uploadAudio() → createJob() → waitForJob() → rapport
+```
+
+Ou utilisez le wrapper pratique :
 
 ```ts
 const report = await reqvet.generateReport({ audio, animalName, templateId, waitForResult: true });
@@ -66,92 +67,99 @@ const report = await reqvet.generateReport({ audio, animalName, templateId, wait
 
 ---
 
-## 4) Methods
+## 4) Méthodes
 
 ### `uploadAudio(audio, fileName?)`
 
-Upload an audio file to ReqVet storage.
+Uploader un fichier audio vers le stockage ReqVet.
 
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `audio` | `Blob \| File \| Buffer` | ✅ | Audio data |
-| `fileName` | `string` | — | File name, used to infer MIME type (default: `audio.webm`) |
+**Paramètres :**
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
+| `audio` | `Blob \| File \| Buffer` | ✅ | Données audio |
+| `fileName` | `string` | — | Nom du fichier, utilisé pour inférer le type MIME (défaut : `audio.webm`) |
 
-**Response:**
+**Réponse :**
+
 ```ts
 {
-  audio_file: string;   // canonical storage path — pass this to createJob()
-  path: string;         // alias of audio_file
+  audio_file: string; // chemin de stockage canonique — à passer à createJob()
+  path: string; // alias de audio_file
   size_bytes: number;
   content_type: string;
 }
 ```
 
-Supported formats: `mp3`, `wav`, `webm`, `ogg`, `m4a`, `aac`, `flac`. Max size: 100 MB.
+Formats supportés : `mp3`, `wav`, `webm`, `ogg`, `m4a`, `aac`, `flac`. Taille max : 100 Mo.
 
 ---
 
 ### `generateReport(params)`
 
-Convenience wrapper: `uploadAudio → createJob`. Optionally waits for completion.
+Wrapper pratique : `uploadAudio → createJob`. Attend optionnellement la fin du traitement.
 
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `audio` | `Blob \| File \| Buffer` | ✅ | Audio data |
-| `animalName` | `string` | ✅ | Name of the animal |
-| `templateId` | `string` | ✅ | Template UUID (from `listTemplates()`) |
-| `fileName` | `string` | — | File name |
-| `callbackUrl` | `string` | — | Your webhook endpoint (HTTPS, publicly reachable) |
-| `metadata` | `Record<string, unknown>` | — | Passthrough data (e.g. `{ consultationId, vetId }`) |
-| `extraInstructions` | `string` | — | Additional generation instructions injected into the prompt |
-| `waitForResult` | `boolean` | — | If `true`, polls and returns the final report. Default: `false` |
-| `onStatus` | `(status: string) => void` | — | Called on each poll (only when `waitForResult: true`) |
+**Paramètres :**
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
+| `audio` | `Blob \| File \| Buffer` | ✅ | Données audio |
+| `animalName` | `string` | ✅ | Nom de l'animal |
+| `templateId` | `string` | ✅ | UUID du template (depuis `listTemplates()`) |
+| `fileName` | `string` | — | Nom du fichier |
+| `callbackUrl` | `string` | — | Votre endpoint webhook (HTTPS, accessible publiquement) |
+| `metadata` | `Record<string, unknown>` | — | Données passthrough (ex. `{ consultationId, vetId }`) |
+| `extraInstructions` | `string` | — | Instructions de génération supplémentaires injectées dans le prompt |
+| `waitForResult` | `boolean` | — | Si `true`, poll et retourne le rapport final. Défaut : `false` |
+| `onStatus` | `(status: string) => void` | — | Appelé à chaque poll (uniquement si `waitForResult: true`) |
 
-**Response:**
-- `waitForResult: false` (default): `{ job_id: string, status: 'pending' }`
-- `waitForResult: true`: `ReqVetReport` (see `waitForJob`)
+**Réponse :**
+
+- `waitForResult: false` (défaut) : `{ job_id: string, status: 'pending' }`
+- `waitForResult: true` : `ReqVetReport` (voir `waitForJob`)
 
 ---
 
 ### `createJob(params)`
 
-Start a transcription + report generation pipeline.
+Démarrer un pipeline de transcription + génération de compte rendu.
 
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `audioFile` | `string` | ✅ | Value of `uploadAudio().path` |
-| `animalName` | `string` | ✅ | Name of the animal |
-| `templateId` | `string` | ✅ | Template UUID |
-| `callbackUrl` | `string` | — | Webhook URL (HTTPS, publicly reachable). Falls back to the org default webhook if omitted. |
-| `metadata` | `Record<string, unknown>` | — | Passthrough data — correlate with your own records |
-| `extraInstructions` | `string` | — | Extra generation instructions (max 5 000 chars) |
+**Paramètres :**
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
+| `audioFile` | `string` | ✅ | Valeur de `uploadAudio().path` |
+| `animalName` | `string` | ✅ | Nom de l'animal |
+| `templateId` | `string` | ✅ | UUID du template |
+| `callbackUrl` | `string` | — | URL webhook (HTTPS, accessible publiquement). Utilise le webhook par défaut de l'organisation si omis. |
+| `metadata` | `Record<string, unknown>` | — | Données passthrough — pour corréler avec vos propres enregistrements |
+| `extraInstructions` | `string` | — | Instructions de génération supplémentaires (max 5 000 caractères) |
 
-**Response:**
+**Réponse :**
+
 ```ts
-{ job_id: string; status: 'pending' }
+{
+  job_id: string;
+  status: 'pending';
+}
 ```
 
-> **Rate limit**: 10 000 requests/minute per organization.
+> **Limite de débit** : 10 000 requêtes/minute par organisation.
 
 ---
 
 ### `listJobs(options?)`
 
-List jobs for the authenticated organization, with pagination and filtering.
+Lister les jobs de l'organisation authentifiée, avec pagination et filtrage.
 
-**Parameters:**
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `limit` | `number` | `20` | Results per page (1–100) |
-| `offset` | `number` | `0` | Pagination offset |
-| `status` | `string` | — | Filter: `pending` `transcribing` `generating` `completed` `failed` `amending` |
-| `sort` | `string` | `created_at` | Sort field: `created_at` or `updated_at` |
-| `order` | `string` | `desc` | Direction: `asc` or `desc` |
+**Paramètres :**
+| Nom | Type | Défaut | Description |
+|-----|------|--------|-------------|
+| `limit` | `number` | `20` | Résultats par page (1–100) |
+| `offset` | `number` | `0` | Décalage de pagination |
+| `status` | `string` | — | Filtre : `pending` `transcribing` `generating` `completed` `failed` `amending` |
+| `sort` | `string` | `created_at` | Champ de tri : `created_at` ou `updated_at` |
+| `order` | `string` | `desc` | Direction : `asc` ou `desc` |
 
-**Response:**
+**Réponse :**
+
 ```ts
 {
   jobs: JobSummary[];
@@ -163,25 +171,26 @@ List jobs for the authenticated organization, with pagination and filtering.
 
 ### `getJob(jobId)`
 
-Get the current state and result of a job.
+Obtenir l'état actuel et le résultat d'un job.
 
-**Response fields by status:**
+**Champs de réponse par statut :**
 
-| Field | `pending` | `transcribing` | `generating` | `completed` | `failed` |
-|-------|:---------:|:--------------:|:------------:|:-----------:|:--------:|
-| `job_id` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `status` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `animal_name` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `metadata` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `transcription` | — | — | ✅ | ✅ | — |
-| `result.html` | — | — | — | ✅ | — |
-| `result.fields` | — | — | — | ✅* | — |
-| `cost` | — | — | — | ✅ | — |
-| `error` | — | — | — | — | ✅ |
+| Champ           | `pending` | `transcribing` | `generating` | `completed` | `failed` |
+| --------------- | :-------: | :------------: | :----------: | :---------: | :------: |
+| `job_id`        |    ✅     |       ✅       |      ✅      |     ✅      |    ✅    |
+| `status`        |    ✅     |       ✅       |      ✅      |     ✅      |    ✅    |
+| `animal_name`   |    ✅     |       ✅       |      ✅      |     ✅      |    ✅    |
+| `metadata`      |    ✅     |       ✅       |      ✅      |     ✅      |    ✅    |
+| `transcription` |     —     |       —        |      ✅      |     ✅      |    —     |
+| `result.html`   |     —     |       —        |      —       |     ✅      |    —     |
+| `result.fields` |     —     |       —        |      —       |    ✅\*     |    —     |
+| `cost`          |     —     |       —        |      —       |     ✅      |    —     |
+| `error`         |     —     |       —        |      —       |      —      |    ✅    |
 
-*`result.fields` is only present if your organization has a `field_schema` configured (structured data extraction). It is `null` otherwise. See [Field schema](#field-schema) below.
+\*`result.fields` n'est présent que si votre organisation a un `field_schema` configuré (extraction de données structurées). Vaut `null` sinon. Voir [Schéma de champs](#5-schéma-de-champs) ci-dessous.
 
-**Cost structure (completed jobs):**
+**Structure du coût (jobs terminés) :**
+
 ```ts
 cost: {
   transcription_usd: number;
@@ -190,91 +199,104 @@ cost: {
 }
 ```
 
-> **Note**: `cost` is available via `getJob()` and `waitForJob()`, but is **not** included in webhook payloads. Retrieve it with `getJob()` after receiving a `job.completed` event if needed.
+> **Note** : `cost` est disponible via `getJob()` et `waitForJob()`, mais n'est **pas** inclus dans les payloads webhook. Récupérez-le avec `getJob()` après réception d'un événement `job.completed` si nécessaire.
 
 ---
 
 ### `waitForJob(jobId, onStatus?)`
 
-Poll until a job reaches `completed` or `failed`. Respects `pollInterval` and `timeout`.
+Poller jusqu'à ce qu'un job atteigne `completed` ou `failed`. Respecte `pollInterval` et `timeout`.
 
-**Response (`ReqVetReport`):**
+**Réponse (`ReqVetReport`) :**
+
 ```ts
 {
   jobId: string;
-  html: string;                              // generated report HTML
-  fields: ExtractedFields | null;            // null if no field_schema configured
+  html: string; // HTML du compte rendu généré
+  fields: ExtractedFields | null; // null si aucun field_schema configuré
   transcription: string;
   animalName: string;
-  cost: { transcription_usd: number; generation_usd: number; total_usd: number };
+  cost: {
+    transcription_usd: number;
+    generation_usd: number;
+    total_usd: number;
+  }
   metadata: Record<string, unknown>;
 }
 ```
 
-Throws `ReqVetError` if the job fails or the timeout is exceeded.
+Lève une `ReqVetError` si le job échoue ou si le timeout est dépassé.
 
 ---
 
 ### `regenerateJob(jobId, options?)`
 
-Regenerate the report for a completed job — e.g. with different instructions or a different template.
+Régénérer le compte rendu d'un job terminé — par exemple avec des instructions différentes ou un autre template.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| `extraInstructions` | `string` | New instructions (max 2 000 chars) |
-| `templateId` | `string` | Switch to a different template |
+**Paramètres :**
+| Nom | Type | Description |
+|-----|------|-------------|
+| `extraInstructions` | `string` | Nouvelles instructions (max 2 000 caractères) |
+| `templateId` | `string` | Basculer vers un autre template |
 
-**Response:**
+**Réponse :**
+
 ```ts
 { job_id: string; status: 'completed'; result: { html: string; fields?: ExtractedFields } }
 ```
 
-Triggers a `job.regenerated` webhook event if a `callbackUrl` is configured.
+Déclenche un événement webhook `job.regenerated` si un `callbackUrl` est configuré.
 
-> **Rate limit**: 30 requests/minute per organization.
+> **Limite de débit** : 30 requêtes/minute par organisation.
 
 ---
 
 ### `amendJob(jobId, params)`
 
-Add an audio complement to a completed job. The new audio is transcribed, merged with the existing transcription, and the report is regenerated.
+Ajouter un audio complémentaire à un job terminé. Le nouvel audio est transcrit, fusionné avec la transcription existante, et le compte rendu est régénéré.
 
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `audioFile` | `string` | ✅ | Value of `uploadAudio().path` |
-| `templateId` | `string` | — | Switch to a different template |
+**Paramètres :**
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
+| `audioFile` | `string` | ✅ | Valeur de `uploadAudio().path` |
+| `templateId` | `string` | — | Basculer vers un autre template |
 
-**Response:**
+**Réponse :**
+
 ```ts
-{ job_id: string; status: 'amending'; amendment_number: number; message: string }
+{
+  job_id: string;
+  status: 'amending';
+  amendment_number: number;
+  message: string;
+}
 ```
 
-The job returns to `completed` when the amendment finishes. Use `waitForJob()` or listen for the `job.amended` webhook event. Multiple amendments are supported — each one appends to the full transcription.
+Le job repasse à `completed` quand l'amendement est terminé. Utilisez `waitForJob()` ou écoutez l'événement webhook `job.amended`. Plusieurs amendements sont supportés — chacun est ajouté à la transcription complète.
 
 ---
 
 ### `reformulateReport(jobId, params)`
 
-Generate an alternative version of a completed report for a specific audience.
+Générer une version alternative d'un compte rendu terminé pour une audience spécifique.
 
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
+**Paramètres :**
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
 | `purpose` | `string` | ✅ | `owner` `referral` `summary` `custom` `diagnostic_hypothesis` |
-| `customInstructions` | `string` | If `purpose: 'custom'` | Reformulation instructions |
+| `customInstructions` | `string` | Si `purpose: 'custom'` | Instructions de reformulation |
 
-**Purpose values:**
-| Value | Output |
-|-------|--------|
-| `owner` | Simplified version for the pet owner |
-| `referral` | Clinical summary for a specialist |
-| `summary` | Short internal note |
-| `diagnostic_hypothesis` | Differential diagnosis list |
-| `custom` | Defined by `customInstructions` |
+**Valeurs de `purpose` :**
+| Valeur | Résultat |
+|--------|----------|
+| `owner` | Version simplifiée pour le propriétaire de l'animal |
+| `referral` | Résumé clinique pour un spécialiste |
+| `summary` | Note interne courte |
+| `diagnostic_hypothesis` | Liste de diagnostics différentiels |
+| `custom` | Défini par `customInstructions` |
 
-**Response (`ReqVetReformulation`):**
+**Réponse (`ReqVetReformulation`) :**
+
 ```ts
 {
   id: string;
@@ -287,13 +309,13 @@ Generate an alternative version of a completed report for a specific audience.
 }
 ```
 
-> **Rate limit**: 30 requests/minute per organization.
+> **Limite de débit** : 30 requêtes/minute par organisation.
 
 ---
 
 ### `listReformulations(jobId)`
 
-**Response:** `{ reformulations: ReqVetReformulation[] }`
+**Réponse :** `{ reformulations: ReqVetReformulation[] }`
 
 ---
 
@@ -301,23 +323,23 @@ Generate an alternative version of a completed report for a specific audience.
 
 #### `listTemplates()` → `{ custom: Template[], system: Template[] }`
 
-- **`system`** — templates created by ReqVet, visible to all organizations. Read-only. Start here to find available `templateId` values.
-- **`custom`** — templates created by your organization. Editable via `createTemplate` / `updateTemplate`.
+- **`system`** — templates créés par ReqVet, visibles par toutes les organisations. Lecture seule. Commencez ici pour trouver les `templateId` disponibles.
+- **`custom`** — templates créés par votre organisation. Modifiables via `createTemplate` / `updateTemplate`.
 
 #### `getTemplate(templateId)` → `Template`
 
 #### `createTemplate(params)` → `Template`
 
-| Name | Type | Required |
-|------|------|----------|
-| `name` | `string` | ✅ |
-| `content` | `string` | ✅ |
-| `description` | `string` | — |
-| `is_default` | `boolean` | — |
+| Nom           | Type      | Requis |
+| ------------- | --------- | ------ |
+| `name`        | `string`  | ✅     |
+| `content`     | `string`  | ✅     |
+| `description` | `string`  | —      |
+| `is_default`  | `boolean` | —      |
 
 #### `updateTemplate(templateId, updates)` → `Template`
 
-All fields optional (partial update). Same fields as `createTemplate`.
+Tous les champs sont optionnels (mise à jour partielle). Mêmes champs que `createTemplate`.
 
 #### `deleteTemplate(templateId)` → `{ success: true }`
 
@@ -325,15 +347,15 @@ All fields optional (partial update). Same fields as `createTemplate`.
 
 ### `health()`
 
-**Response:** `{ status: 'ok' | 'degraded'; timestamp: string }`
+**Réponse :** `{ status: 'ok' | 'degraded'; timestamp: string }`
 
 ---
 
-## 5) Field schema
+## 5) Schéma de champs
 
-If your organization has a `field_schema` configured, ReqVet extracts structured fields from each consultation in addition to generating the HTML report.
+Si votre organisation a un `field_schema` configuré, ReqVet extrait des champs structurés de chaque consultation en plus de générer le compte rendu HTML.
 
-Example `result.fields` for a standard checkup:
+Exemple de `result.fields` pour un bilan de santé standard :
 
 ```json
 {
@@ -347,23 +369,23 @@ Example `result.fields` for a standard checkup:
 }
 ```
 
-`fields` is `null` if no `field_schema` is configured for your organization. Contact your ReqVet account manager to enable and configure structured extraction.
+`fields` vaut `null` si aucun `field_schema` n'est configuré pour votre organisation. Contactez votre responsable de compte ReqVet pour activer et configurer l'extraction structurée.
 
 ---
 
-## 6) Webhook events
+## 6) Événements webhook
 
-ReqVet POSTs to your `callbackUrl` when a job changes state. All events share the same format.
+ReqVet POSTe sur votre `callbackUrl` quand un job change d'état. Tous les événements partagent le même format.
 
-### Headers
+### En-têtes
 
 ```
 Content-Type: application/json
-X-ReqVet-Signature: sha256=<hex>   (only if org has a webhook_secret)
-X-ReqVet-Timestamp: <unix_ms>      (only if org has a webhook_secret)
+X-ReqVet-Signature: sha256=<hex>   (uniquement si l'organisation a un webhook_secret)
+X-ReqVet-Timestamp: <unix_ms>      (uniquement si l'organisation a un webhook_secret)
 ```
 
-### Event types and payloads
+### Types d'événements et payloads
 
 #### `job.completed`
 
@@ -379,7 +401,7 @@ X-ReqVet-Timestamp: <unix_ms>      (only if org has a webhook_secret)
 }
 ```
 
-> `fields` is absent if the organization has no `field_schema`. `cost` is not in the webhook — retrieve it with `getJob()` if needed.
+> `fields` est absent si l'organisation n'a pas de `field_schema`. `cost` n'est pas dans le webhook — récupérez-le avec `getJob()` si nécessaire.
 
 ---
 
@@ -399,14 +421,14 @@ X-ReqVet-Timestamp: <unix_ms>      (only if org has a webhook_secret)
 
 #### `job.amended`
 
-Sent when an amendment (`amendJob`) completes successfully.
+Envoyé quand un amendement (`amendJob`) se termine avec succès.
 
 ```json
 {
   "event": "job.amended",
   "job_id": "a1b2c3d4-...",
   "animal_name": "Rex",
-  "transcription": "...full transcription including amendment...",
+  "transcription": "...transcription complète incluant l'amendement...",
   "html": "<section class=\"cr\">...</section>",
   "amendment_number": 1,
   "fields": { "espece": "Chien", "poids": 28.5 },
@@ -418,7 +440,7 @@ Sent when an amendment (`amendJob`) completes successfully.
 
 #### `job.amend_failed`
 
-Sent when amendment transcription fails. The original report is preserved.
+Envoyé quand la transcription d'un amendement échoue. Le compte rendu original est préservé.
 
 ```json
 {
@@ -434,7 +456,7 @@ Sent when amendment transcription fails. The original report is preserved.
 
 #### `job.regenerated`
 
-Sent when `regenerateJob()` completes.
+Envoyé quand `regenerateJob()` se termine.
 
 ```json
 {
@@ -449,68 +471,68 @@ Sent when `regenerateJob()` completes.
 
 ---
 
-### Retry policy
+### Politique de retry
 
-ReqVet retries failed webhook deliveries **3 times** with delays of 0s, 2s, and 5s. After 3 failures, the event is marked as undelivered. Implement idempotency in your handler (deduplicate on `job_id + event`).
+ReqVet retente les livraisons webhook échouées **3 fois** avec des délais de 0s, 2s et 5s. Après 3 échecs, l'événement est marqué comme non livré. Implémentez l'idempotence dans votre handler (dédoublonnez sur `job_id + event`).
 
 ---
 
-## 7) Webhook verification
+## 7) Vérification des webhooks
 
 ```ts
-import { verifyWebhookSignature } from '@reqvet/sdk/webhooks';
+import { verifyWebhookSignature } from '@reqvet-sdk/sdk/webhooks';
 
 const { ok, reason } = verifyWebhookSignature({
   secret: process.env.REQVET_WEBHOOK_SECRET!,
-  rawBody,       // raw request body string — read BEFORE JSON.parse
-  signature,     // X-ReqVet-Signature header value
-  timestamp,     // X-ReqVet-Timestamp header value
-  maxSkewMs: 5 * 60 * 1000,  // reject events older than 5 min (default)
+  rawBody, // corps brut de la requête — à lire AVANT JSON.parse
+  signature, // valeur de l'en-tête X-ReqVet-Signature
+  timestamp, // valeur de l'en-tête X-ReqVet-Timestamp
+  maxSkewMs: 5 * 60 * 1000, // rejeter les événements de plus de 5 min (défaut)
 });
 ```
 
-Rejection reasons: `missing_headers` `invalid_timestamp` `stale_timestamp` `invalid_signature`
+Raisons de rejet : `missing_headers` `invalid_timestamp` `stale_timestamp` `invalid_signature`
 
-See [SECURITY.md](./SECURITY.md) for a complete Next.js implementation example.
+Voir [SECURITY.md](./SECURITY.md) pour un exemple d'implémentation complet avec Next.js.
 
 ---
 
-## 8) Error handling
+## 8) Gestion des erreurs
 
-All methods throw `ReqVetError` on HTTP errors or network failures:
+Toutes les méthodes lèvent une `ReqVetError` en cas d'erreur HTTP ou de panne réseau :
 
 ```ts
-import { ReqVetError } from '@reqvet/sdk';
+import { ReqVetError } from '@reqvet-sdk/sdk';
 
 try {
   const report = await reqvet.waitForJob(jobId);
 } catch (err) {
   if (err instanceof ReqVetError) {
-    console.error(err.message);  // human-readable message
-    console.error(err.status);   // HTTP status (0 for network/timeout errors)
-    console.error(err.body);     // raw response body
+    console.error(err.message); // message lisible par un humain
+    console.error(err.status); // statut HTTP (0 pour les erreurs réseau/timeout)
+    console.error(err.body); // corps brut de la réponse
   }
 }
 ```
 
-| Status | Meaning |
-|--------|---------|
-| `400` | Validation error — check `err.body.issues` |
-| `401` | Invalid or missing API key |
-| `403` | Monthly quota exceeded |
-| `404` | Job or template not found |
-| `429` | Rate limit exceeded — back off and retry |
-| `500` | ReqVet internal error |
+| Statut | Signification                                     |
+| ------ | ------------------------------------------------- |
+| `400`  | Erreur de validation — vérifiez `err.body.issues` |
+| `401`  | Clé API invalide ou manquante                     |
+| `403`  | Quota mensuel dépassé                             |
+| `404`  | Job ou template introuvable                       |
+| `429`  | Limite de débit dépassée — attendez et réessayez  |
+| `500`  | Erreur interne ReqVet                             |
 
 ---
 
-## 9) Integration checklist
+## 9) Checklist d'intégration
 
-- [ ] SDK used **server-side only** — API key never in browser bundles
-- [ ] `listTemplates()` called at startup to discover available `templateId` values
-- [ ] `metadata` used to correlate ReqVet jobs with your own records (`consultationId`, `vetId`, etc.)
-- [ ] Webhook endpoint handles all 5 event types: `job.completed`, `job.failed`, `job.amended`, `job.amend_failed`, `job.regenerated`
-- [ ] Webhook signature verified on every incoming event
-- [ ] Timestamp anti-replay check enabled (`maxSkewMs`)
-- [ ] Idempotency implemented — deduplicate on `job_id + event`
-- [ ] `REQVET_API_KEY` and `REQVET_WEBHOOK_SECRET` stored in environment variables, never hardcoded
+- [ ] SDK utilisé **côté serveur uniquement** — clé API jamais dans les bundles navigateur
+- [ ] `listTemplates()` appelé au démarrage pour découvrir les `templateId` disponibles
+- [ ] `metadata` utilisé pour corréler les jobs ReqVet avec vos propres enregistrements (`consultationId`, `vetId`, etc.)
+- [ ] L'endpoint webhook gère les 5 types d'événements : `job.completed`, `job.failed`, `job.amended`, `job.amend_failed`, `job.regenerated`
+- [ ] Signature webhook vérifiée sur chaque événement entrant
+- [ ] Vérification anti-replay du timestamp activée (`maxSkewMs`)
+- [ ] Idempotence implémentée — dédoublonnage sur `job_id + event`
+- [ ] `REQVET_API_KEY` et `REQVET_WEBHOOK_SECRET` stockés dans des variables d'environnement, jamais en dur dans le code

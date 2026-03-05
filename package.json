@@ -1,6 +1,6 @@
 {
   "name": "@reqvet-sdk/sdk",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Official JavaScript SDK for the ReqVet veterinary report generation API.",
   "type": "module",
   "main": "./src/index.js",

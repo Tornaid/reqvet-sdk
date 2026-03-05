@@ -1,78 +1,78 @@
-# @reqvet/sdk
+# @reqvet-sdk/sdk
 
-Official JavaScript/TypeScript SDK for the [ReqVet](https://reqvet.com) API — AI-powered veterinary report generation from audio recordings.
+SDK JavaScript/TypeScript officiel pour l'API [ReqVet](https://reqvet.com) — génération de comptes rendus vétérinaires par IA à partir d'enregistrements audio.
 
-[![npm version](https://img.shields.io/npm/v/@reqvet/sdk)](https://www.npmjs.com/package/@reqvet/sdk)
+[![npm version](https://img.shields.io/npm/v/@reqvet-sdk/sdk)](https://www.npmjs.com/package/@reqvet-sdk/sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js ≥ 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-## What it does
+## Fonctionnalités
 
-- **Upload** an audio recording (`uploadAudio`)
-- **Generate** a veterinary report (`createJob`, `generateReport`)
-- **Track** jobs — webhook-first or polling (`getJob`, `waitForJob`, `listJobs`)
-- **Amend** a completed report with additional audio (`amendJob`)
-- **Regenerate** with new instructions (`regenerateJob`)
-- **Reformulate** for a specific audience — owner, referral, specialist (`reformulateReport`)
-- **Manage templates** (`listTemplates`, `createTemplate`, `updateTemplate`, `deleteTemplate`)
-- **Verify webhooks** with HMAC (`@reqvet/sdk/webhooks`)
+- **Uploader** un enregistrement audio (`uploadAudio`)
+- **Générer** un compte rendu vétérinaire (`createJob`, `generateReport`)
+- **Suivre** les jobs — via webhook ou polling (`getJob`, `waitForJob`, `listJobs`)
+- **Amender** un compte rendu terminé avec un audio complémentaire (`amendJob`)
+- **Régénérer** avec de nouvelles instructions (`regenerateJob`)
+- **Reformuler** pour une audience spécifique — propriétaire, référé, spécialiste (`reformulateReport`)
+- **Gérer les templates** (`listTemplates`, `createTemplate`, `updateTemplate`, `deleteTemplate`)
+- **Vérifier les webhooks** avec HMAC (`@reqvet-sdk/sdk/webhooks`)
 
-> **Note**: this SDK does not include an audio recorder. Your application handles recording and passes a `File`, `Blob`, or `Buffer` to the SDK.
+> **Note** : ce SDK n'inclut pas d'enregistreur audio. Votre application gère l'enregistrement et passe un `File`, `Blob` ou `Buffer` au SDK.
 
 ## Installation
 
 ```bash
-npm install @reqvet/sdk
+npm install @reqvet-sdk/sdk
 ```
 
-Requires Node.js ≥ 18. Works in modern browsers for client methods (Blob/FormData required for upload).
+Nécessite Node.js ≥ 18. Fonctionne dans les navigateurs modernes pour les méthodes client (Blob/FormData requis pour l'upload).
 
-## Before your first call
+## Avant votre premier appel
 
-Your ReqVet account manager will provide three environment variables:
+Votre responsable de compte ReqVet vous fournira trois variables d'environnement :
 
 ```bash
 REQVET_API_KEY=rqv_live_...
 REQVET_BASE_URL=https://api.reqvet.com
-REQVET_WEBHOOK_SECRET=...   # only needed if using webhooks
+REQVET_WEBHOOK_SECRET=...   # uniquement si vous utilisez les webhooks
 ```
 
-Every job requires a `templateId`. **Call `listTemplates()` first** to discover what's available:
+Chaque job nécessite un `templateId`. **Appelez `listTemplates()` en premier** pour découvrir ce qui est disponible :
 
 ```ts
 const { system, custom } = await reqvet.listTemplates();
-// system = ReqVet-provided templates, visible to all organizations (read-only)
-// custom = templates created by your organization
+// system = templates fournis par ReqVet, visibles par toutes les organisations (lecture seule)
+// custom = templates créés par votre organisation
 
 const templateId = system[0].id;
 ```
 
-## Quick start
+## Démarrage rapide
 
-### Webhook flow (recommended)
+### Flux webhook (recommandé)
 
 ```ts
-import ReqVet from '@reqvet/sdk';
+import ReqVet from '@reqvet-sdk/sdk';
 
 const reqvet = new ReqVet(process.env.REQVET_API_KEY!, {
   baseUrl: process.env.REQVET_BASE_URL,
 });
 
-// 1. Upload the audio
+// 1. Uploader l'audio
 const { path } = await reqvet.uploadAudio(audioBuffer, 'consultation.webm');
 
-// 2. Create a job — ReqVet will POST the result to your webhook when ready
+// 2. Créer un job — ReqVet POSTera le résultat sur votre webhook quand il sera prêt
 const job = await reqvet.createJob({
   audioFile: path,
   animalName: 'Rex',
   templateId: 'your-template-uuid',
   callbackUrl: 'https://your-app.com/api/reqvet/webhook',
-  metadata: { consultationId: 'abc123' },  // passed through to your webhook
+  metadata: { consultationId: 'abc123' },  // transmis tel quel à votre webhook
 });
 // { job_id: '...', status: 'pending' }
 ```
 
-Your webhook receives a `job.completed` event:
+Votre webhook reçoit un événement `job.completed` :
 
 ```json
 {
@@ -86,7 +86,7 @@ Your webhook receives a `job.completed` event:
 }
 ```
 
-### Polling flow (simpler for development)
+### Flux polling (plus simple pour le développement)
 
 ```ts
 const report = await reqvet.generateReport({
@@ -99,10 +99,10 @@ const report = await reqvet.generateReport({
 // { jobId, html, fields, transcription, cost, metadata }
 ```
 
-### Verify an incoming webhook
+### Vérifier un webhook entrant
 
 ```ts
-import { verifyWebhookSignature } from '@reqvet/sdk/webhooks';
+import { verifyWebhookSignature } from '@reqvet-sdk/sdk/webhooks';
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -123,36 +123,36 @@ export async function POST(req: NextRequest) {
 
 ## API
 
-| Method | Description |
-|--------|-------------|
-| `uploadAudio(audio, fileName?)` | Upload an audio file |
-| `generateReport(params)` | Upload + create job (convenience helper) |
-| `createJob(params)` | Create a generation job |
-| `listJobs(options?)` | List jobs with pagination and status filter |
-| `getJob(jobId)` | Get job status and result |
-| `waitForJob(jobId, onStatus?)` | Poll until job completes |
-| `regenerateJob(jobId, options?)` | Regenerate a completed report |
-| `amendJob(jobId, params)` | Add an audio complement to a completed job |
-| `reformulateReport(jobId, params)` | Generate an audience-specific version |
-| `listReformulations(jobId)` | List all reformulations for a job |
-| `listTemplates()` | List available templates (`{ system, custom }`) |
-| `getTemplate(templateId)` | Get a template by ID |
-| `createTemplate(params)` | Create a custom template |
-| `updateTemplate(templateId, updates)` | Update a template |
-| `deleteTemplate(templateId)` | Delete a template |
-| `health()` | API health check |
+| Méthode | Description |
+|---------|-------------|
+| `uploadAudio(audio, fileName?)` | Uploader un fichier audio |
+| `generateReport(params)` | Upload + création de job (helper tout-en-un) |
+| `createJob(params)` | Créer un job de génération |
+| `listJobs(options?)` | Lister les jobs avec pagination et filtre par statut |
+| `getJob(jobId)` | Obtenir le statut et le résultat d'un job |
+| `waitForJob(jobId, onStatus?)` | Attendre en polling la fin d'un job |
+| `regenerateJob(jobId, options?)` | Régénérer un compte rendu terminé |
+| `amendJob(jobId, params)` | Ajouter un audio complémentaire à un job terminé |
+| `reformulateReport(jobId, params)` | Générer une version adaptée à une audience |
+| `listReformulations(jobId)` | Lister toutes les reformulations d'un job |
+| `listTemplates()` | Lister les templates disponibles (`{ system, custom }`) |
+| `getTemplate(templateId)` | Obtenir un template par son ID |
+| `createTemplate(params)` | Créer un template personnalisé |
+| `updateTemplate(templateId, updates)` | Mettre à jour un template |
+| `deleteTemplate(templateId)` | Supprimer un template |
+| `health()` | Vérification de l'état de l'API |
 
-## Webhook events
+## Événements webhook
 
-ReqVet fires 5 event types: `job.completed`, `job.failed`, `job.amended`, `job.amend_failed`, `job.regenerated`.
+ReqVet déclenche 5 types d'événements : `job.completed`, `job.failed`, `job.amended`, `job.amend_failed`, `job.regenerated`.
 
-Failed deliveries are retried 3 times (0s, 2s, 5s). Implement idempotency in your handler — deduplicate on `job_id + event`.
+Les livraisons échouées sont retentées 3 fois (0s, 2s, 5s). Implémentez l'idempotence dans votre handler — dédoublonnez sur `job_id + event`.
 
-See [SDK_REFERENCE.md §6](./SDK_REFERENCE.md#6-webhook-events) for the full payload structure of each event.
+Voir [SDK_REFERENCE.md §6](./SDK_REFERENCE.md#6-webhook-events) pour la structure complète des payloads de chaque événement.
 
 ## TypeScript
 
-Full TypeScript definitions included:
+Définitions TypeScript complètes incluses :
 
 ```ts
 import type {
@@ -162,18 +162,18 @@ import type {
   Template,
   ReqVetReformulation,
   ExtractedFields,
-} from '@reqvet/sdk';
+} from '@reqvet-sdk/sdk';
 ```
 
-## Further reading
+## Pour aller plus loin
 
-- [SDK_REFERENCE.md](./SDK_REFERENCE.md) — full parameter and response documentation, all webhook payloads, field schema, error codes
-- [SECURITY.md](./SECURITY.md) — security guidelines, proxy pattern, complete webhook verification example
+- [SDK_REFERENCE.md](./SDK_REFERENCE.md) — documentation complète des paramètres et réponses, tous les payloads webhook, schéma des champs, codes d'erreur
+- [SECURITY.md](./SECURITY.md) — bonnes pratiques de sécurité, pattern proxy, exemple complet de vérification webhook
 
-## Security
+## Sécurité
 
-**Never** expose your API key in client-side code. Always use the SDK server-side and proxy requests from your frontend. See [SECURITY.md](./SECURITY.md).
+**Ne jamais** exposer votre clé API dans du code côté client. Utilisez toujours le SDK côté serveur et proxifiez les requêtes depuis votre frontend. Voir [SECURITY.md](./SECURITY.md).
 
-## License
+## Licence
 
 MIT
