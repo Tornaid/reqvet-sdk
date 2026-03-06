@@ -188,6 +188,52 @@ export interface ReqVetReformulation {
   created_at: string;
 }
 
+// ─── Partner / Reseller Types ────────────────────────────────
+
+export interface OrganizationUsage {
+  jobs_this_month: number;
+  quota_remaining: number | 'unlimited';
+}
+
+export interface PartnerOrganization {
+  id: string;
+  name: string;
+  contact_email: string | null;
+  is_active: boolean;
+  monthly_quota: number | null;
+  external_id: string | null;
+  created_at: string;
+  usage?: OrganizationUsage;
+}
+
+export interface CreateOrganizationParams {
+  name: string;
+  contactEmail?: string;
+  /** Your internal ID — enables idempotency (same externalId returns the existing org) */
+  externalId?: string;
+  /** Max jobs per month (default: 100, max: 10 000) */
+  monthlyQuota?: number;
+  webhookUrl?: string;
+}
+
+export interface UpdateOrganizationParams {
+  monthlyQuota?: number;
+  /** Set to false to suspend the clinic and revoke its API keys */
+  isActive?: boolean;
+  webhookUrl?: string;
+}
+
+export interface CreateOrganizationResult {
+  organization: Pick<PartnerOrganization, 'id' | 'name' | 'monthly_quota' | 'external_id'>;
+  /** The clinic's API key — returned only once, store it securely! */
+  api_key: string;
+  /** Webhook signing secret — returned only once, store it securely! */
+  webhook_secret: string;
+  warning: string;
+  /** Returned instead of api_key/webhook_secret when the org already exists (idempotent) */
+  message?: string;
+}
+
 // ─── Client ──────────────────────────────────────────────────
 
 export declare class ReqVetError extends Error {
@@ -271,6 +317,30 @@ export declare class ReqVet {
 
   /** Delete a template */
   deleteTemplate(templateId: string): Promise<{ success: boolean }>;
+
+  // ─── Partner / Reseller (requires role='reseller' API key) ──
+
+  /** List all organizations provisioned by the reseller */
+  listOrganizations(): Promise<{ organizations: PartnerOrganization[] }>;
+
+  /**
+   * Provision a new organization/clinic.
+   * Idempotent via externalId — returns existing org if already provisioned.
+   * ⚠️ api_key and webhook_secret are returned only once.
+   */
+  createOrganization(params: CreateOrganizationParams): Promise<CreateOrganizationResult>;
+
+  /** Get details and current month usage of a specific organization */
+  getOrganization(orgId: string): Promise<PartnerOrganization>;
+
+  /** Update an organization's quota, status, or webhook URL */
+  updateOrganization(
+    orgId: string,
+    updates: UpdateOrganizationParams,
+  ): Promise<Pick<PartnerOrganization, 'id' | 'name' | 'is_active' | 'monthly_quota' | 'external_id'>>;
+
+  /** Deactivate an organization and revoke all its API keys (soft delete) */
+  deactivateOrganization(orgId: string): Promise<{ success: boolean; message: string }>;
 
   /** Health check */
   health(): Promise<{ status: string; services: Record<string, string> }>;

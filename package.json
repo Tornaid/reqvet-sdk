@@ -1,6 +1,6 @@
 {
   "name": "@reqvet-sdk/sdk",
-  "version": "2.2.2",
+  "version": "2.2.1",
   "description": "Official JavaScript SDK for the ReqVet veterinary report generation API.",
   "type": "module",
   "main": "./src/index.js",
@@ -18,13 +18,7 @@
     },
     "./package.json": "./package.json"
   },
-  "files": [
-    "src/",
-    "README.md",
-    "SDK_REFERENCE.md",
-    "CHANGELOG.md",
-    "SECURITY.md"
-  ],
+  "files": ["src/", "README.md", "SDK_REFERENCE.md", "CHANGELOG.md", "SECURITY.md"],
   "keywords": [
     "reqvet",
     "veterinary",

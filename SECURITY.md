@@ -117,6 +117,46 @@ await cache.set(key, true, { ttl: 86400 });
 // process...
 ```
 
+## Clés revendeur et credentials cliniques
+
+Les revendeurs manipulent deux types de secrets supplémentaires qui exigent une attention particulière.
+
+### Clé API revendeur
+
+La clé revendeur (`rqv_live_...` avec `role='reseller'`) donne accès à l'ensemble des cliniques que vous administrez. Elle est plus sensible qu'une clé clinique standard.
+
+```bash
+# Variable d'environnement dédiée, distincte de la clé clinique
+REQVET_RESELLER_KEY=rqv_live_...
+```
+
+**Ne jamais** utiliser la clé revendeur côté client ni la partager avec les cliniques.
+
+### `api_key` et `webhook_secret` retournés par `createOrganization`
+
+Ces deux valeurs sont **affichées une seule fois** au moment de la création. Après la réponse HTTP initiale, elles ne peuvent pas être récupérées (seul le hash SHA-256 de la clé est stocké côté serveur).
+
+```ts
+const result = await reseller.createOrganization({ name: 'Clinique du Parc', externalId: 'id_4892' });
+
+// ✅ Stocker immédiatement dans votre vault ou base chiffrée
+await secretsVault.store({
+  orgId: result.organization.id,
+  apiKey: result.api_key,           // non récupérable après cette réponse
+  webhookSecret: result.webhook_secret, // non récupérable après cette réponse
+});
+
+// ✅ Transmettre la clé à la clinique de manière sécurisée (canal chiffré, jamais par email)
+```
+
+Si une clé clinique est perdue ou compromise, le seul recours est de désactiver l'organisation via `deactivateOrganization()` et d'en créer une nouvelle.
+
+### Isolation entre revendeurs
+
+L'API Partner filtre toutes les requêtes sur `parent_org_id = reseller.orgId` côté base de données. Il n'est pas possible d'accéder aux cliniques d'un autre revendeur, même en connaissant un `orgId` valide. Ne pas tenter de contourner cette isolation.
+
+---
+
 ## API key rotation
 
 If a key is compromised:

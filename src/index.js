@@ -416,6 +416,87 @@ class ReqVet {
     return this._fetch('DELETE', `/api/v1/templates/${templateId}`);
   }
 
+  // ─── Partner / Reseller ────────────────────────────────────
+
+  /**
+   * List all organizations provisioned by the reseller.
+   * Requires a reseller API key (role='reseller').
+   *
+   * @returns {Promise<{organizations: Object[]}>}
+   */
+  async listOrganizations() {
+    return this._fetch('GET', '/api/v1/partner/orgs');
+  }
+
+  /**
+   * Provision a new organization (clinic) under the reseller account.
+   * Requires a reseller API key (role='reseller').
+   *
+   * Idempotent via externalId: if an org with the same externalId already
+   * exists under this reseller, the existing one is returned (no duplicate).
+   *
+   * ⚠️ The returned api_key and webhook_secret are shown only once — store them securely.
+   *
+   * @param {Object} params
+   * @param {string} params.name - Clinic name
+   * @param {string} [params.contactEmail]
+   * @param {string} [params.externalId] - Your internal ID (enables idempotency)
+   * @param {number} [params.monthlyQuota] - Job quota per month (default: 100, max: 10 000)
+   * @param {string} [params.webhookUrl] - Webhook URL for job results
+   * @returns {Promise<Object>}
+   */
+  async createOrganization({ name, contactEmail, externalId, monthlyQuota, webhookUrl }) {
+    return this._fetch('POST', '/api/v1/partner/orgs', {
+      name,
+      contact_email: contactEmail,
+      external_id: externalId,
+      monthly_quota: monthlyQuota,
+      webhook_url: webhookUrl,
+    });
+  }
+
+  /**
+   * Get details and current month usage of a specific organization.
+   * Requires a reseller API key (role='reseller').
+   *
+   * @param {string} orgId
+   * @returns {Promise<Object>}
+   */
+  async getOrganization(orgId) {
+    return this._fetch('GET', `/api/v1/partner/orgs/${orgId}`);
+  }
+
+  /**
+   * Update an organization's quota, status, or webhook URL.
+   * Requires a reseller API key (role='reseller').
+   *
+   * @param {string} orgId
+   * @param {Object} updates
+   * @param {number} [updates.monthlyQuota]
+   * @param {boolean} [updates.isActive] - Set to false to suspend the clinic
+   * @param {string} [updates.webhookUrl]
+   * @returns {Promise<Object>}
+   */
+  async updateOrganization(orgId, { monthlyQuota, isActive, webhookUrl } = {}) {
+    return this._fetch('PATCH', `/api/v1/partner/orgs/${orgId}`, {
+      monthly_quota: monthlyQuota,
+      is_active: isActive,
+      webhook_url: webhookUrl,
+    });
+  }
+
+  /**
+   * Deactivate an organization and revoke all its API keys.
+   * Soft delete — data is preserved for audit/GDPR purposes.
+   * Requires a reseller API key (role='reseller').
+   *
+   * @param {string} orgId
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  async deactivateOrganization(orgId) {
+    return this._fetch('DELETE', `/api/v1/partner/orgs/${orgId}`);
+  }
+
   // ─── Health ────────────────────────────────────────────────
 
   /**

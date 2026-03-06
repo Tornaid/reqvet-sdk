@@ -570,7 +570,227 @@ try {
 
 ---
 
-## 9) Checklist d'intégration
+## 9) API Partenaire / Revendeur
+
+Ces méthodes sont réservées aux revendeurs (éditeurs logiciels) qui provisionnent et administrent des cliniques clientes. Elles nécessitent une clé API avec `role='reseller'`, distincte des clés d'organisation standard.
+
+> **Isolation garantie** : un revendeur ne peut accéder qu'aux organisations qu'il a lui-même créées. La contrainte est appliquée en base de données (`parent_org_id = reseller.orgId`) — il n'est pas possible d'accéder aux données d'un autre revendeur, même avec un `orgId` connu.
+
+---
+
+### `listOrganizations()`
+
+Lister toutes les organisations (cliniques) provisionnées par le revendeur, enrichies de l'usage du mois courant.
+
+**Réponse :**
+
+```ts
+{
+  organizations: Array<{
+    id: string;
+    name: string;
+    contact_email: string | null;
+    is_active: boolean;
+    monthly_quota: number | null;
+    external_id: string | null;
+    created_at: string;
+    usage: {
+      jobs_this_month: number;
+      quota_remaining: number | 'unlimited';
+    };
+  }>;
+}
+```
+
+**Exemple :**
+
+```ts
+const reseller = new ReqVet(process.env.REQVET_RESELLER_KEY!);
+
+const { organizations } = await reseller.listOrganizations();
+
+for (const org of organizations) {
+  console.log(`${org.name} — ${org.usage.jobs_this_month} jobs ce mois / quota ${org.monthly_quota}`);
+}
+```
+
+---
+
+### `createOrganization(params)`
+
+Provisionner une nouvelle organisation (clinique) sous le compte revendeur.
+
+Cette méthode crée automatiquement :
+- l'enregistrement de l'organisation dans ReqVet
+- une clé API `rqv_live_...` pour la clinique (stockée hashée côté serveur)
+- un secret de signature webhook `whsec_...`
+
+**Paramètres :**
+
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
+| `name` | `string` | ✅ | Nom de la clinique |
+| `contactEmail` | `string` | — | Email de contact |
+| `externalId` | `string` | — | Votre identifiant interne (active l'idempotence — voir ci-dessous) |
+| `monthlyQuota` | `number` | — | Nombre max de jobs par mois (défaut : 100, max : 10 000) |
+| `webhookUrl` | `string` | — | URL de webhook pour les événements de jobs de cette clinique |
+
+**Idempotence via `externalId`**
+
+Si `externalId` est fourni et qu'une organisation avec ce même identifiant existe déjà sous ce revendeur, la méthode retourne l'organisation existante sans créer de doublon. Le champ `message` est alors présent dans la réponse (`'Organization already exists (idempotent)'`), et `api_key` / `webhook_secret` sont absents (ils ne peuvent pas être récupérés après la création initiale).
+
+**Réponse (statut 201 — première création) :**
+
+```ts
+{
+  organization: {
+    id: string;
+    name: string;
+    monthly_quota: number;
+    external_id: string | null;
+  };
+  api_key: string;       // rqv_live_... — à stocker immédiatement, non récupérable ensuite
+  webhook_secret: string; // whsec_...  — à stocker immédiatement, non récupérable ensuite
+  warning: string;       // "Save api_key and webhook_secret now — they cannot be retrieved later!"
+}
+```
+
+**Réponse (statut 200 — idempotent, organisation déjà existante) :**
+
+```ts
+{
+  message: 'Organization already exists (idempotent)';
+  organization: { id, name, monthly_quota, external_id, is_active };
+  // api_key et webhook_secret absents
+}
+```
+
+**Exemple :**
+
+```ts
+const result = await reseller.createOrganization({
+  name: 'Clinique du Parc',
+  contactEmail: 'contact@clinique-du-parc.fr',
+  externalId: 'votre_id_interne_4892',
+  monthlyQuota: 500,
+  webhookUrl: 'https://votre-app.com/webhooks/reqvet',
+});
+
+if (!result.api_key) {
+  // Organisation déjà existante (idempotent) — récupérer la clé depuis votre propre stockage
+  const storedKey = await db.getApiKey(result.organization.id);
+} else {
+  // Première création — stocker la clé et le secret immédiatement
+  await db.saveClinicCredentials({
+    orgId: result.organization.id,
+    apiKey: result.api_key,
+    webhookSecret: result.webhook_secret,
+  });
+}
+```
+
+---
+
+### `getOrganization(orgId)`
+
+Obtenir les détails et l'usage du mois courant d'une organisation spécifique.
+
+**Paramètres :**
+
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
+| `orgId` | `string` | ✅ | UUID de l'organisation |
+
+**Réponse :** `PartnerOrganization` (même structure que les éléments de `listOrganizations`, avec `usage`)
+
+**Exemple :**
+
+```ts
+const org = await reseller.getOrganization('uuid-de-la-clinique');
+console.log(`Quota restant : ${org.usage.quota_remaining}`);
+```
+
+---
+
+### `updateOrganization(orgId, updates)`
+
+Modifier le quota mensuel, l'état d'activation, ou l'URL de webhook d'une organisation.
+
+Tous les champs sont optionnels — seuls les champs fournis sont mis à jour.
+
+**Paramètres :**
+
+| Nom | Type | Description |
+|-----|------|-------------|
+| `orgId` | `string` | UUID de l'organisation |
+| `updates.monthlyQuota` | `number` | Nouveau quota mensuel (1–10 000) |
+| `updates.isActive` | `boolean` | `false` pour suspendre la clinique (révoque aussi ses clés API) |
+| `updates.webhookUrl` | `string` | Nouvelle URL de webhook (`null` pour supprimer) |
+
+> **Suspension** : passer `isActive: false` désactive l'organisation **et** révoque toutes ses clés API en cascade. Les jobs déjà en cours ne sont pas interrompus. Pour réactiver, passer `isActive: true` — les clés API restent révoquées et doivent être régénérées manuellement si nécessaire.
+
+**Réponse :**
+
+```ts
+{
+  id: string;
+  name: string;
+  is_active: boolean;
+  monthly_quota: number;
+  external_id: string | null;
+}
+```
+
+**Exemples :**
+
+```ts
+// Augmenter le quota
+await reseller.updateOrganization(orgId, { monthlyQuota: 1000 });
+
+// Suspendre une clinique (non-paiement, etc.)
+await reseller.updateOrganization(orgId, { isActive: false });
+
+// Réactiver
+await reseller.updateOrganization(orgId, { isActive: true });
+
+// Mettre à jour le webhook
+await reseller.updateOrganization(orgId, {
+  webhookUrl: 'https://votre-app.com/webhooks/reqvet/v2',
+});
+```
+
+---
+
+### `deactivateOrganization(orgId)`
+
+Désactiver définitivement une organisation et révoquer toutes ses clés API.
+
+Il s'agit d'un **soft delete** : les données (jobs, transcriptions, comptes rendus) sont conservées en base pour respecter les obligations RGPD et permettre un audit trail. L'organisation ne peut plus créer de nouveaux jobs.
+
+**Paramètres :**
+
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
+| `orgId` | `string` | ✅ | UUID de l'organisation |
+
+**Réponse :**
+
+```ts
+{ success: true; message: 'Organization and API keys deactivated' }
+```
+
+**Exemple :**
+
+```ts
+await reseller.deactivateOrganization(orgId);
+// L'organisation est désormais inactive, ses clés API sont révoquées
+```
+
+---
+
+## 10) Checklist d'intégration
+
+**Intégration standard (clinique)**
 
 - [ ] SDK utilisé **côté serveur uniquement** — clé API jamais dans les bundles navigateur
 - [ ] `listTemplates()` appelé au démarrage pour découvrir les `templateId` disponibles
@@ -580,3 +800,11 @@ try {
 - [ ] Vérification anti-replay du timestamp activée (`maxSkewMs`)
 - [ ] Idempotence implémentée — dédoublonnage sur `job_id + event`
 - [ ] `REQVET_API_KEY` et `REQVET_WEBHOOK_SECRET` stockés dans des variables d'environnement, jamais en dur dans le code
+
+**Intégration revendeur (multi-tenant)**
+
+- [ ] Clé revendeur (`REQVET_RESELLER_KEY`) distincte et stockée séparément des clés cliniques
+- [ ] `externalId` systématiquement fourni à `createOrganization` pour garantir l'idempotence des onboardings
+- [ ] `api_key` et `webhook_secret` retournés par `createOrganization` stockés immédiatement et de façon sécurisée — ils ne sont affichés qu'une seule fois
+- [ ] Suspension de clinique gérée via `updateOrganization(orgId, { isActive: false })` (et non `deactivateOrganization` qui est irréversible)
+- [ ] Usage mensuel (`usage.jobs_this_month`, `usage.quota_remaining`) consulté via `listOrganizations()` ou `getOrganization()` pour le monitoring et la facturation

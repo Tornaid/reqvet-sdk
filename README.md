@@ -16,6 +16,7 @@ SDK JavaScript/TypeScript officiel pour l'API [ReqVet](https://reqvet.com) — g
 - **Reformuler** pour une audience spécifique — propriétaire, référé, spécialiste (`reformulateReport`)
 - **Gérer les templates** (`listTemplates`, `createTemplate`, `updateTemplate`, `deleteTemplate`)
 - **Vérifier les webhooks** avec HMAC (`@reqvet-sdk/sdk/webhooks`)
+- **Provisionner et gérer des cliniques** en mode revendeur multi-tenant (`createOrganization`, `listOrganizations`, `updateOrganization`, `deactivateOrganization`)
 
 > **Note** : ce SDK n'inclut pas d'enregistreur audio. Votre application gère l'enregistrement et passe un `File`, `Blob` ou `Buffer` au SDK.
 
@@ -141,6 +142,8 @@ export async function POST(req: NextRequest) {
 
 ## API
 
+### Génération de comptes rendus
+
 | Méthode | Description |
 |---------|-------------|
 | `getSignedUploadUrl(fileName, contentType)` | URL signée Supabase pour upload direct (recommandé serveur) |
@@ -161,6 +164,18 @@ export async function POST(req: NextRequest) {
 | `deleteTemplate(templateId)` | Supprimer un template |
 | `health()` | Vérification de l'état de l'API |
 
+### API Partenaire / Revendeur
+
+> Ces méthodes nécessitent une clé API revendeur (`rqv_live_...` avec `role='reseller'`), distincte de la clé d'une clinique standard. Contactez votre responsable de compte ReqVet pour obtenir une clé revendeur.
+
+| Méthode | Description |
+|---------|-------------|
+| `listOrganizations()` | Lister toutes les cliniques provisionnées par le revendeur |
+| `createOrganization(params)` | Provisionner une nouvelle clinique (génère sa clé API et son webhook secret) |
+| `getOrganization(orgId)` | Obtenir le détail et l'usage du mois d'une clinique |
+| `updateOrganization(orgId, updates)` | Modifier le quota, le statut ou le webhook d'une clinique |
+| `deactivateOrganization(orgId)` | Suspendre une clinique et révoquer ses clés API (soft delete) |
+
 ## Événements webhook
 
 ReqVet déclenche 5 types d'événements : `job.completed`, `job.failed`, `job.amended`, `job.amend_failed`, `job.regenerated`.
@@ -168,6 +183,56 @@ ReqVet déclenche 5 types d'événements : `job.completed`, `job.failed`, `job.a
 Les livraisons échouées sont retentées 3 fois (0s, 2s, 5s). Implémentez l'idempotence dans votre handler — dédoublonnez sur `job_id + event`.
 
 Voir [SDK_REFERENCE.md §6](./SDK_REFERENCE.md#6-webhook-events) pour la structure complète des payloads de chaque événement.
+
+## Intégration revendeur (multi-tenant)
+
+Si vous êtes un éditeur logiciel intégrant ReqVet pour vos clients (cliniques), utilisez une clé API revendeur pour provisionner et gérer les organisations de manière programmatique.
+
+```ts
+import ReqVet from '@reqvet-sdk/sdk';
+
+// Instancier avec la clé revendeur (role='reseller')
+const reseller = new ReqVet(process.env.REQVET_RESELLER_KEY!);
+
+// Provisionner une clinique à l'onboarding
+const result = await reseller.createOrganization({
+  name: 'Clinique du Parc',
+  contactEmail: 'contact@clinique-du-parc.fr',
+  externalId: 'votre_id_interne_4892', // votre ID — garantit l'idempotence
+  monthlyQuota: 500,
+  webhookUrl: 'https://votre-app.com/webhooks/reqvet',
+});
+
+// ⚠️ Stocker immédiatement ces valeurs — elles ne sont retournées qu'une seule fois
+await db.saveClinicCredentials({
+  clinicId: result.organization.id,
+  apiKey: result.api_key,           // rqv_live_...
+  webhookSecret: result.webhook_secret, // whsec_...
+});
+
+// La clinique utilise ensuite son propre client ReqVet avec sa clé
+const clinic = new ReqVet(result.api_key);
+const { system } = await clinic.listTemplates();
+const job = await clinic.createJob({ audioFile, animalName, templateId: system[0].id });
+
+// Lister toutes les cliniques avec leur usage du mois
+const { organizations } = await reseller.listOrganizations();
+// [{ id, name, is_active, monthly_quota, usage: { jobs_this_month, quota_remaining } }]
+
+// Modifier le quota d'une clinique
+await reseller.updateOrganization(orgId, { monthlyQuota: 1000 });
+
+// Suspendre une clinique (révoque aussi ses clés API)
+await reseller.updateOrganization(orgId, { isActive: false });
+
+// Réactiver
+await reseller.updateOrganization(orgId, { isActive: true });
+
+// Désactiver définitivement (soft delete — données conservées pour le RGPD)
+await reseller.deactivateOrganization(orgId);
+```
+
+> **Idempotence** : si `createOrganization` est appelé plusieurs fois avec le même `externalId`, l'organisation existante est retournée sans créer de doublon. Utile pour rendre votre processus d'onboarding sûr en cas de retry.
 
 ## TypeScript
 
@@ -181,6 +246,12 @@ import type {
   Template,
   ReqVetReformulation,
   ExtractedFields,
+  // Partner / Reseller
+  PartnerOrganization,
+  OrganizationUsage,
+  CreateOrganizationParams,
+  UpdateOrganizationParams,
+  CreateOrganizationResult,
 } from '@reqvet-sdk/sdk';
 ```
 
