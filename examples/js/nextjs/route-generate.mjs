@@ -1,6 +1,9 @@
 // examples/js/nextjs/route-generate.mjs
 // Next.js App Router — proxy route for report generation (JavaScript).
 // Place at: app/api/reqvet/generate/route.js
+//
+// Uses getSignedUploadUrl() + direct PUT to Supabase instead of uploadAudio()
+// to avoid Vercel Serverless Function's ~4.5 MB payload limit.
 
 import { NextResponse } from 'next/server';
 import ReqVet from '@reqvet-sdk/sdk';
@@ -25,10 +28,26 @@ export async function POST(req) {
       );
     }
 
-    const upload = await reqvet.uploadAudio(audio, audio.name);
+    // 1. Get a presigned Supabase URL — tiny JSON request, no file payload
+    const { uploadUrl, path } = await reqvet.getSignedUploadUrl(
+      audio.name || 'consultation.webm',
+      audio.type || 'audio/webm',
+    );
 
+    // 2. Upload directly to Supabase — bypasses Vercel's ~4.5 MB limit
+    const audioBuffer = Buffer.from(await audio.arrayBuffer());
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': audio.type || 'audio/webm' },
+      body: audioBuffer,
+    });
+    if (!uploadRes.ok) {
+      throw new Error(`Supabase upload failed: ${uploadRes.status}`);
+    }
+
+    // 3. Create the generation job
     const job = await reqvet.createJob({
-      audioFile: upload.path,
+      audioFile: path,
       animalName,
       templateId,
       callbackUrl: process.env.REQVET_WEBHOOK_URL,
@@ -39,7 +58,6 @@ export async function POST(req) {
     });
 
     return NextResponse.json(job, { status: 201 });
-    // { job_id: '...', status: 'pending' }
 
   } catch (err) {
     console.error('ReqVet generate error:', err);

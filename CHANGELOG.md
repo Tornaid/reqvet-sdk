@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.1
+
+- **Feat** : ajout de `getSignedUploadUrl(fileName, contentType)` — obtenir une URL presignée Supabase pour uploader l'audio directement, sans passer par `/api/v1/upload` (Vercel Serverless Function, limite ~4.5 MB). Recommandé pour les proxies serveur (Next.js, Express…) gérant des fichiers > 4 MB.
+- **Types** : ajout de `SignedUploadResult` dans `index.d.ts`.
+- **Docs** : `uploadAudio()` annotée avec l'avertissement Vercel dans `index.js`, `index.d.ts`, `SDK_REFERENCE.md` et `README.md`.
+- **Examples** : `nextjs/route-generate.ts` et `nextjs/route-generate.mjs` mis à jour pour utiliser `getSignedUploadUrl()`.
+- **Security** : exemple proxy dans `SECURITY.md` mis à jour.
+
 ## 2.2.0
 
 - **Feat** : ajout de `listJobs(options?)` — liste les jobs avec pagination (`limit`, `offset`) et filtres (`status`, `sort`, `order`). Aligne le SDK sur `GET /api/v1/jobs`.

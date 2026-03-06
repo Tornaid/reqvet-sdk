@@ -51,6 +51,8 @@ const templateId = system[0].id;
 
 ### Flux webhook (recommandé)
 
+Pour les intégrations serveur (Next.js, Express…), utilisez `getSignedUploadUrl()` qui uploade le fichier directement dans Supabase sans passer par une Vercel Serverless Function — **pas de limite de taille**.
+
 ```ts
 import ReqVet from '@reqvet-sdk/sdk';
 
@@ -58,19 +60,35 @@ const reqvet = new ReqVet(process.env.REQVET_API_KEY!, {
   baseUrl: process.env.REQVET_BASE_URL,
 });
 
-// 1. Uploader l'audio
-const { path } = await reqvet.uploadAudio(audioBuffer, 'consultation.webm');
+// 1. Obtenir une URL signée Supabase (requête JSON légère, pas de fichier)
+const { uploadUrl, path } = await reqvet.getSignedUploadUrl(
+  'consultation.webm',
+  'audio/webm',
+);
 
-// 2. Créer un job — ReqVet POSTera le résultat sur votre webhook quand il sera prêt
+// 2. Uploader directement vers Supabase (contourne Vercel, pas de limite de taille)
+await fetch(uploadUrl, {
+  method: 'PUT',
+  headers: { 'Content-Type': 'audio/webm' },
+  body: audioBuffer, // Buffer | Blob | File
+});
+
+// 3. Créer un job — ReqVet POSTera le résultat sur votre webhook quand il sera prêt
 const job = await reqvet.createJob({
   audioFile: path,
   animalName: 'Rex',
   templateId: 'your-template-uuid',
   callbackUrl: 'https://your-app.com/api/reqvet/webhook',
-  metadata: { consultationId: 'abc123' },  // transmis tel quel à votre webhook
+  metadata: { consultationId: 'abc123' },
 });
 // { job_id: '...', status: 'pending' }
 ```
+
+> **`uploadAudio()` vs `getSignedUploadUrl()`**
+>
+> `uploadAudio()` est pratique pour des fichiers légers (< 4 MB) ou des contextes navigateur.
+> Pour les proxies serveur, préférez `getSignedUploadUrl()` : le fichier va directement dans Supabase,
+> sans passer par `/api/v1/upload` (Vercel Serverless Function, limite ~4.5 MB).
 
 Votre webhook reçoit un événement `job.completed` :
 
@@ -125,7 +143,8 @@ export async function POST(req: NextRequest) {
 
 | Méthode | Description |
 |---------|-------------|
-| `uploadAudio(audio, fileName?)` | Uploader un fichier audio |
+| `getSignedUploadUrl(fileName, contentType)` | URL signée Supabase pour upload direct (recommandé serveur) |
+| `uploadAudio(audio, fileName?)` | Uploader un fichier audio via ReqVet (limite Vercel ~4.5 MB) |
 | `generateReport(params)` | Upload + création de job (helper tout-en-un) |
 | `createJob(params)` | Créer un job de génération |
 | `listJobs(options?)` | Lister les jobs avec pagination et filtre par statut |

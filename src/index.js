@@ -109,7 +109,35 @@ class ReqVet {
   // ─── Upload ────────────────────────────────────────────────
 
   /**
+   * Get a presigned upload URL for direct upload to ReqVet storage (Supabase).
+   *
+   * Recommended for server-side integrations (e.g. Next.js proxy routes).
+   * The file goes directly to Supabase — it never passes through a Vercel
+   * Serverless Function, so there is no ~4.5 MB payload limit.
+   *
+   * Flow:
+   *   1. getSignedUploadUrl(fileName, contentType) — tiny JSON request, no file.
+   *   2. PUT the audio buffer to uploadUrl (direct to Supabase).
+   *   3. Pass path to createJob({ audioFile: path }).
+   *
+   * @param {string} fileName - File name (e.g. 'consultation.webm')
+   * @param {string} contentType - MIME type (e.g. 'audio/webm')
+   * @returns {Promise<{uploadUrl: string, path: string}>}
+   */
+  async getSignedUploadUrl(fileName, contentType) {
+    return this._fetch('POST', '/api/v1/storage/signed-upload', {
+      file_name: fileName,
+      content_type: contentType,
+    });
+  }
+
+  /**
    * Upload an audio file to ReqVet storage.
+   *
+   * ⚠️  This method POSTs the file to /api/v1/upload, which runs as a
+   * Vercel Serverless Function (~4.5 MB request limit). For server-side
+   * proxies (Next.js, Express…) handling files > 4 MB, prefer
+   * getSignedUploadUrl() + a direct PUT to avoid this limit.
    *
    * @param {Blob|Buffer|File} audio - The audio file
    * @param {string} [fileName] - File name

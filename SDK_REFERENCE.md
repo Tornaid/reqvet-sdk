@@ -69,9 +69,53 @@ const report = await reqvet.generateReport({ audio, animalName, templateId, wait
 
 ## 4) Méthodes
 
+### `getSignedUploadUrl(fileName, contentType)` ⭐ recommandé serveur
+
+Obtenir une URL signée Supabase pour uploader le fichier audio directement, sans passer par une Vercel Serverless Function.
+
+**Quand l'utiliser :** intégrations serveur (Next.js proxy, Express, etc.), fichiers > 4 MB.
+
+**Flow :**
+```
+getSignedUploadUrl() → PUT uploadUrl (Supabase direct) → createJob({ audioFile: path })
+```
+
+**Paramètres :**
+| Nom | Type | Requis | Description |
+|-----|------|--------|-------------|
+| `fileName` | `string` | ✅ | Nom du fichier (ex. `consultation.webm`) |
+| `contentType` | `string` | ✅ | Type MIME (ex. `audio/webm`) |
+
+**Réponse :**
+```ts
+{
+  uploadUrl: string; // URL presignée Supabase — à utiliser avec PUT
+  path: string;      // chemin de stockage — à passer à createJob()
+}
+```
+
+**Exemple :**
+```ts
+const { uploadUrl, path } = await reqvet.getSignedUploadUrl('consultation.webm', 'audio/webm');
+
+await fetch(uploadUrl, {
+  method: 'PUT',
+  headers: { 'Content-Type': 'audio/webm' },
+  body: audioBuffer,
+});
+
+const job = await reqvet.createJob({ audioFile: path, animalName, templateId });
+```
+
+---
+
 ### `uploadAudio(audio, fileName?)`
 
-Uploader un fichier audio vers le stockage ReqVet.
+Uploader un fichier audio vers le stockage ReqVet via `/api/v1/upload`.
+
+> ⚠️ **Limite serveur** : `/api/v1/upload` est une Vercel Serverless Function avec une limite de payload de ~4.5 MB. Pour les proxies serveur gérant des fichiers > 4 MB, utilisez [`getSignedUploadUrl()`](#getsigneduploadurlfilename-contenttype--recommandé-serveur) à la place.
+>
+> `uploadAudio()` reste adapté pour les contextes navigateur (Blob/File natif, pas de limite Vercel) ou les fichiers légers.
 
 **Paramètres :**
 | Nom | Type | Requis | Description |

@@ -15,6 +15,13 @@ export interface UploadResult {
   content_type: string;
 }
 
+export interface SignedUploadResult {
+  /** Presigned URL for direct PUT upload to Supabase storage */
+  uploadUrl: string;
+  /** Storage path to pass to createJob({ audioFile: path }) */
+  path: string;
+}
+
 export interface JobResult {
   job_id: string;
   status: 'pending' | 'transcribing' | 'generating' | 'completed' | 'failed' | 'amending';
@@ -201,7 +208,18 @@ export declare class ReqVet {
   generateReport(params: GenerateReportParams & { waitForResult?: false }): Promise<JobResult>;
   generateReport(params: GenerateReportParams): Promise<JobResult | ReqVetReport>;
 
-  /** Upload an audio file */
+  /**
+   * Get a presigned URL for direct upload to Supabase storage.
+   * Recommended for server-side proxies — bypasses Vercel's ~4.5 MB payload limit.
+   * PUT the audio buffer to uploadUrl, then pass path to createJob().
+   */
+  getSignedUploadUrl(fileName: string, contentType: string): Promise<SignedUploadResult>;
+
+  /**
+   * Upload an audio file via ReqVet's /api/v1/upload endpoint.
+   * ⚠️ Subject to Vercel Serverless Function payload limit (~4.5 MB).
+   * For files > 4 MB in server-side contexts, use getSignedUploadUrl() instead.
+   */
   uploadAudio(audio: Blob | Buffer | File, fileName?: string): Promise<UploadResult>;
 
   /** Create a generation job */

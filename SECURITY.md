@@ -29,7 +29,7 @@ Example proxy route (Next.js App Router):
 ```ts
 // app/api/reqvet/generate/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import ReqVet from '@reqvet/sdk';
+import ReqVet from '@reqvet-sdk/sdk';
 
 const reqvet = new ReqVet(process.env.REQVET_API_KEY!);
 
@@ -37,7 +37,21 @@ export async function POST(req: NextRequest) {
   const form = await req.formData();
   const audio = form.get('audio') as File;
 
-  const { path } = await reqvet.uploadAudio(audio, audio.name);
+  // Use getSignedUploadUrl() instead of uploadAudio() for server-side proxies.
+  // uploadAudio() posts to /api/v1/upload (Vercel Serverless Function, ~4.5 MB limit).
+  // getSignedUploadUrl() uploads directly to Supabase — no size limit.
+  const { uploadUrl, path } = await reqvet.getSignedUploadUrl(
+    audio.name || 'consultation.webm',
+    audio.type || 'audio/webm',
+  );
+
+  const audioBuffer = Buffer.from(await audio.arrayBuffer());
+  await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': audio.type || 'audio/webm' },
+    body: audioBuffer,
+  });
+
   const job = await reqvet.createJob({
     audioFile: path,
     animalName: form.get('animalName') as string,
