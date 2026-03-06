@@ -186,43 +186,107 @@ Voir [SDK_REFERENCE.md §6](./SDK_REFERENCE.md#6-webhook-events) pour la structu
 
 ## Intégration revendeur (multi-tenant)
 
-Si vous êtes un éditeur logiciel intégrant ReqVet pour vos clients (cliniques), utilisez une clé API revendeur pour provisionner et gérer les organisations de manière programmatique.
+Si vous êtes un éditeur logiciel intégrant ReqVet pour vos clients (cliniques), vous disposez de **deux types de clés** :
+
+| Clé | Variable | Usage |
+|-----|----------|-------|
+| Clé revendeur | `REQVET_RESELLER_KEY` | Provisionner et administrer les cliniques — **jamais** pour générer des jobs |
+| Clé clinique | stockée dans votre DB | Faire les appels de génération pour cette clinique spécifique |
+
+### 1 — Onboarding : provisionner une clinique
+
+Appelez `createOrganization` à chaque fois qu'une nouvelle clinique souscrit à votre service. Utilisez votre identifiant interne comme `externalId` — c'est le pont entre vos deux systèmes.
 
 ```ts
 import ReqVet from '@reqvet-sdk/sdk';
 
-// Instancier avec la clé revendeur (role='reseller')
 const reseller = new ReqVet(process.env.REQVET_RESELLER_KEY!);
 
-// Provisionner une clinique à l'onboarding
 const result = await reseller.createOrganization({
   name: 'Clinique du Parc',
   contactEmail: 'contact@clinique-du-parc.fr',
-  externalId: 'votre_id_interne_4892', // votre ID — garantit l'idempotence
+  externalId: String(clinic.id),  // votre ID interne → idempotence garantie
   monthlyQuota: 500,
   webhookUrl: 'https://votre-app.com/webhooks/reqvet',
 });
 
-// ⚠️ Stocker immédiatement ces valeurs — elles ne sont retournées qu'une seule fois
-await db.saveClinicCredentials({
-  clinicId: result.organization.id,
-  apiKey: result.api_key,           // rqv_live_...
-  webhookSecret: result.webhook_secret, // whsec_...
-});
+if (result.api_key) {
+  // Première création — stocker immédiatement, chiffré au repos
+  // api_key et webhook_secret ne sont retournés qu'une seule fois
+  await db.clinics.update(clinic.id, {
+    reqvet_org_id:    result.organization.id,
+    reqvet_api_key:   encrypt(result.api_key),      // rqv_live_...
+    reqvet_wh_secret: encrypt(result.webhook_secret), // whsec_...
+  });
+}
+// Si !result.api_key → clinique déjà provisionnée (idempotent), clé déjà en base
+```
 
-// La clinique utilise ensuite son propre client ReqVet avec sa clé
-const clinic = new ReqVet(result.api_key);
-const { system } = await clinic.listTemplates();
-const job = await clinic.createJob({ audioFile, animalName, templateId: system[0].id });
+### 2 — Runtime : appeler ReqVet pour le bon utilisateur
 
+À chaque consultation, récupérez la clé de **la clinique de l'utilisateur connecté** et faites l'appel côté serveur. La clé ne sort jamais du backend.
+
+```ts
+// Handler server-side — appelé quand un vétérinaire lance une transcription
+async function transcribe(userId: string, audioBuffer: Buffer) {
+  // Identifier la clinique de l'utilisateur dans VOTRE système
+  const clinic = await db.getClinicByUser(userId);
+
+  // Déchiffrer la clé de cette clinique — côté serveur uniquement
+  const reqvet = new ReqVet(decrypt(clinic.reqvet_api_key));
+
+  // Upload direct Supabase (pas de limite de taille)
+  const { uploadUrl, path } = await reqvet.getSignedUploadUrl('consultation.webm', 'audio/webm');
+  await fetch(uploadUrl, { method: 'PUT', body: audioBuffer });
+
+  // Injecter clinicId dans metadata → permet de router les webhooks entrants
+  return reqvet.createJob({
+    audioFile: path,
+    animalName: consultation.animalName,
+    templateId: clinic.reqvet_template_id,
+    callbackUrl: 'https://votre-app.com/webhooks/reqvet',
+    metadata: { clinicId: clinic.id, userId },
+  });
+}
+```
+
+### 3 — Webhooks entrants : router vers la bonne clinique
+
+Vos webhooks arrivent sur un seul endpoint. Utilisez `metadata.clinicId` (injecté au `createJob`) pour identifier la clinique et vérifier la signature avec son propre secret.
+
+```ts
+export async function POST(req: NextRequest) {
+  const rawBody = await req.text();
+  const event = JSON.parse(rawBody);
+
+  const clinic = await db.getClinic(event.metadata?.clinicId);
+
+  const { ok } = verifyWebhookSignature({
+    secret: decrypt(clinic.reqvet_wh_secret), // secret de CETTE clinique
+    rawBody,
+    signature: req.headers.get('x-reqvet-signature') ?? '',
+    timestamp: req.headers.get('x-reqvet-timestamp') ?? '',
+  });
+
+  if (!ok) return new Response('Unauthorized', { status: 401 });
+
+  if (event.event === 'job.completed') {
+    await db.saveReport(clinic.id, event.job_id, event.html, event.fields);
+  }
+}
+```
+
+### 4 — Administration : quotas, suspension, monitoring
+
+```ts
 // Lister toutes les cliniques avec leur usage du mois
 const { organizations } = await reseller.listOrganizations();
 // [{ id, name, is_active, monthly_quota, usage: { jobs_this_month, quota_remaining } }]
 
-// Modifier le quota d'une clinique
+// Modifier le quota (ex. changement de plan)
 await reseller.updateOrganization(orgId, { monthlyQuota: 1000 });
 
-// Suspendre une clinique (révoque aussi ses clés API)
+// Suspendre une clinique — révoque ses clés API en cascade
 await reseller.updateOrganization(orgId, { isActive: false });
 
 // Réactiver
@@ -232,7 +296,7 @@ await reseller.updateOrganization(orgId, { isActive: true });
 await reseller.deactivateOrganization(orgId);
 ```
 
-> **Idempotence** : si `createOrganization` est appelé plusieurs fois avec le même `externalId`, l'organisation existante est retournée sans créer de doublon. Utile pour rendre votre processus d'onboarding sûr en cas de retry.
+> Voir [SDK_REFERENCE.md §9](./SDK_REFERENCE.md#pattern--gestion-des-clés-par-clinique) pour le schéma DB complet, les règles impératives et les cas limites (rotation de clé, etc.).
 
 ## TypeScript
 

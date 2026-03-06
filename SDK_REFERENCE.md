@@ -578,6 +578,123 @@ Ces méthodes sont réservées aux revendeurs (éditeurs logiciels) qui provisio
 
 ---
 
+### Pattern : gestion des clés par clinique
+
+Chaque clinique provisionnée reçoit sa propre clé API `rqv_live_...`. Avec 100 cliniques, il faut un mécanisme pour associer la bonne clé au bon utilisateur authentifié au moment de l'appel.
+
+**Le principe** : vous stockez les clés dans votre propre base de données, liées à vos enregistrements cliniques. Vos appels vers ReqVet se font **server-side** — la clé ne passe jamais dans le navigateur.
+
+#### Schéma recommandé (côté revendeur)
+
+```sql
+-- Dans votre base de données
+ALTER TABLE clinics ADD COLUMN reqvet_org_id     TEXT;         -- UUID ReqVet
+ALTER TABLE clinics ADD COLUMN reqvet_api_key    TEXT;         -- rqv_live_... chiffré
+ALTER TABLE clinics ADD COLUMN reqvet_wh_secret  TEXT;         -- whsec_... chiffré
+```
+
+> Chiffrez `reqvet_api_key` et `reqvet_wh_secret` au repos (AES-256 ou équivalent). Ces valeurs sont des secrets d'accès — traitez-les comme des mots de passe.
+
+#### Flux d'onboarding d'une clinique
+
+```ts
+// Appelé quand vous créez une nouvelle clinique dans votre système
+async function onboardClinic(clinicId: string, clinicData: ClinicInput) {
+  const reseller = new ReqVet(process.env.REQVET_RESELLER_KEY!);
+
+  // externalId = votre ID interne → garantit l'idempotence en cas de retry
+  const result = await reseller.createOrganization({
+    name: clinicData.name,
+    contactEmail: clinicData.email,
+    externalId: clinicId,       // ← votre identifiant interne comme pont
+    monthlyQuota: 200,
+    webhookUrl: `https://votre-app.com/webhooks/reqvet`,
+  });
+
+  if (result.api_key) {
+    // Première création : stocker la clé chiffrée
+    await db.clinics.update(clinicId, {
+      reqvet_org_id:    result.organization.id,
+      reqvet_api_key:   encrypt(result.api_key),
+      reqvet_wh_secret: encrypt(result.webhook_secret),
+    });
+  }
+  // Si !result.api_key → organisation déjà existante (idempotent), clé déjà en base
+}
+```
+
+#### Flux d'appel au moment de la consultation
+
+```ts
+// Appelé quand un vétérinaire authentifié lance une transcription
+async function transcribe(userId: string, audioBuffer: Buffer) {
+  // 1. Identifier la clinique de l'utilisateur dans VOTRE système
+  const clinic = await db.getClinicByUser(userId);
+
+  // 2. Récupérer et déchiffrer la clé ReqVet — côté serveur uniquement
+  const reqvetKey = decrypt(clinic.reqvet_api_key);
+
+  // 3. Instancier le client avec la clé de CETTE clinique
+  const reqvet = new ReqVet(reqvetKey);
+
+  // 4. Appel ReqVet — la clé ne sort jamais du serveur
+  const { uploadUrl, path } = await reqvet.getSignedUploadUrl('consultation.webm', 'audio/webm');
+  await fetch(uploadUrl, { method: 'PUT', body: audioBuffer });
+
+  const job = await reqvet.createJob({
+    audioFile: path,
+    animalName: consultation.animalName,
+    templateId: clinic.reqvet_template_id,
+    callbackUrl: `https://votre-app.com/webhooks/reqvet`,
+    metadata: { clinicId: clinic.id, userId },
+  });
+
+  return job;
+}
+```
+
+#### Réception du webhook
+
+Le webhook ReqVet arrive sur votre endpoint. Pour l'associer à la bonne clinique, utilisez le `metadata.clinicId` que vous avez injecté lors du `createJob` :
+
+```ts
+export async function POST(req: NextRequest) {
+  const rawBody = await req.text();
+  const event = JSON.parse(rawBody);
+
+  // Retrouver la clinique via les metadata passthrough
+  const clinicId = event.metadata?.clinicId;
+  const clinic = await db.getClinic(clinicId);
+
+  // Vérifier la signature avec le secret de CETTE clinique
+  const { ok } = verifyWebhookSignature({
+    secret: decrypt(clinic.reqvet_wh_secret),
+    rawBody,
+    signature: req.headers.get('x-reqvet-signature') ?? '',
+    timestamp: req.headers.get('x-reqvet-timestamp') ?? '',
+  });
+
+  if (!ok) return new Response('Unauthorized', { status: 401 });
+
+  // Traiter l'événement
+  if (event.event === 'job.completed') {
+    await db.saveReport(clinicId, event.job_id, event.html, event.fields);
+  }
+}
+```
+
+#### Règles impératives
+
+| Règle | Détail |
+|-------|--------|
+| **Server-side uniquement** | La clé clinique ne doit jamais être envoyée au navigateur, ni apparaître dans les réponses API de votre frontend |
+| **Chiffrement au repos** | `reqvet_api_key` et `reqvet_wh_secret` chiffrés en base — pas en clair |
+| **`externalId` = votre ID** | Utilisez systématiquement votre identifiant interne comme `externalId` — c'est le pont entre vos deux systèmes et le garde-fou anti-doublon |
+| **Une clé par clinique** | Ne réutilisez jamais la clé d'une clinique pour une autre — l'isolation des données ReqVet est par `org_id` |
+| **Rotation** | Si une clé est compromise, désactivez la clinique (`isActive: false`), puis réactivez — les nouvelles clés devront être provisionnées manuellement via `createOrganization` |
+
+---
+
 ### `listOrganizations()`
 
 Lister toutes les organisations (cliniques) provisionnées par le revendeur, enrichies de l'usage du mois courant.
@@ -804,7 +921,11 @@ await reseller.deactivateOrganization(orgId);
 **Intégration revendeur (multi-tenant)**
 
 - [ ] Clé revendeur (`REQVET_RESELLER_KEY`) distincte et stockée séparément des clés cliniques
-- [ ] `externalId` systématiquement fourni à `createOrganization` pour garantir l'idempotence des onboardings
-- [ ] `api_key` et `webhook_secret` retournés par `createOrganization` stockés immédiatement et de façon sécurisée — ils ne sont affichés qu'une seule fois
+- [ ] `externalId` systématiquement fourni à `createOrganization` — valeur = votre ID interne de clinique
+- [ ] `api_key` et `webhook_secret` retournés par `createOrganization` stockés immédiatement, **chiffrés au repos** — ils ne sont affichés qu'une seule fois
+- [ ] Clés cliniques appelées **server-side uniquement** — jamais exposées au navigateur ni aux réponses frontend
+- [ ] Un client `ReqVet` instancié avec la clé de **la clinique concernée** à chaque appel — jamais avec la clé revendeur pour les jobs
+- [ ] `metadata` enrichi de `clinicId` (et `userId` si pertinent) sur chaque `createJob` — permet de router les webhooks entrants vers la bonne clinique
+- [ ] Signature webhook vérifiée avec le secret de **la clinique destinataire** (et non le secret revendeur)
 - [ ] Suspension de clinique gérée via `updateOrganization(orgId, { isActive: false })` (et non `deactivateOrganization` qui est irréversible)
 - [ ] Usage mensuel (`usage.jobs_this_month`, `usage.quota_remaining`) consulté via `listOrganizations()` ou `getOrganization()` pour le monitoring et la facturation
