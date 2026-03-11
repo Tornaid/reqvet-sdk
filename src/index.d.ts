@@ -58,6 +58,10 @@ export interface ReqVetReport {
   fields: ExtractedFields | null;
   transcription: string;
   animalName: string;
+  /** Race de l'animal (ex : "Labrador Retriever"), si fourni à la création du job */
+  animalBreed?: string | null;
+  /** Âge de l'animal (ex : "3 ans", "6 mois"), si fourni à la création du job */
+  animalAge?: string | null;
   cost: {
     transcription_usd: number;
     generation_usd: number;
@@ -82,6 +86,12 @@ export interface Template {
 export interface GenerateReportParams {
   audio: Blob | Buffer | File;
   animalName: string;
+  /** Race de l'animal (ex : "Labrador Retriever", "Berger Allemand", "Persan").
+   * Améliore le contexte clinique des prompts LLM — particulièrement utile pour diagnostic_hypothesis. */
+  animalBreed?: string;
+  /** Âge de l'animal sous forme libre (ex : "3 ans", "6 mois", "8 ans 2 mois").
+   * Intégré au signalement patient dans les prompts LLM. */
+  animalAge?: string;
   templateId: string;
   fileName?: string;
   /**
@@ -104,11 +114,15 @@ export interface GenerateReportParams {
 export interface CreateJobParams {
   audioFile: string;
   animalName: string;
+  /** Race de l'animal (ex : "Labrador Retriever"). Injecté dans les prompts LLM pour le contexte clinique. */
+  animalBreed?: string;
+  /** Âge de l'animal sous forme libre (ex : "3 ans", "6 mois"). Injecté dans les prompts LLM. */
+  animalAge?: string;
   templateId: string;
   /** Optional webhook URL (falls back to the org default webhook_url server-side if omitted). */
   callbackUrl?: string;
   metadata?: Record<string, unknown>;
-  extraInstructions?: string; // 👈 add
+  extraInstructions?: string;
 }
 
 export interface CreateTemplateParams {
@@ -130,6 +144,8 @@ export interface JobSummary {
   id: string;
   status: 'pending' | 'transcribing' | 'generating' | 'completed' | 'failed' | 'amending';
   animal_name: string;
+  animal_breed?: string | null;
+  animal_age?: string | null;
   template_id: string;
   metadata: Record<string, unknown>;
   created_at: string;

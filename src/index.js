@@ -73,6 +73,8 @@ class ReqVet {
   async generateReport({
     audio,
     animalName,
+    animalBreed,
+    animalAge,
     templateId,
     fileName,
     callbackUrl,
@@ -93,10 +95,12 @@ class ReqVet {
     const job = await this.createJob({
       audioFile: upload.audio_file,
       animalName,
+      animalBreed,
+      animalAge,
       templateId,
       callbackUrl,
-      metadata, // 👈 ne touche pas metadata
-      extraInstructions, // 👈 passe le param séparé
+      metadata,
+      extraInstructions,
     });
 
     // Step 3: Either return immediately, or poll until completion.
@@ -179,10 +183,12 @@ class ReqVet {
    * @param {Object} [params.metadata]
    * @returns {Promise<{job_id: string, status: string}>}
    */
-  async createJob({ audioFile, animalName, templateId, callbackUrl, metadata, extraInstructions }) {
+  async createJob({ audioFile, animalName, animalBreed, animalAge, templateId, callbackUrl, metadata, extraInstructions }) {
     return this._fetch('POST', '/api/v1/jobs', {
       audio_file: audioFile,
       animal_name: animalName,
+      animal_breed: animalBreed,
+      animal_age: animalAge,
       template_id: templateId,
       callback_url: callbackUrl,
       metadata,
@@ -246,6 +252,8 @@ class ReqVet {
           fields: job.result?.fields || null,
           transcription: job.transcription || '',
           animalName: job.animal_name,
+          animalBreed: job.animal_breed ?? null,
+          animalAge: job.animal_age ?? null,
           cost: job.cost || {},
           metadata: job.metadata || {},
         };

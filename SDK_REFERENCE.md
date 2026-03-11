@@ -147,6 +147,8 @@ Wrapper pratique : `uploadAudio → createJob`. Attend optionnellement la fin du
 |-----|------|--------|-------------|
 | `audio` | `Blob \| File \| Buffer` | ✅ | Données audio |
 | `animalName` | `string` | ✅ | Nom de l'animal |
+| `animalBreed` | `string` | — | Race de l'animal (ex : `"Labrador Retriever"`, `"Berger Allemand"`, `"Persan"`). Enrichit le contexte clinique des prompts LLM — important pour `diagnostic_hypothesis`. |
+| `animalAge` | `string` | — | Âge sous forme libre (ex : `"3 ans"`, `"6 mois"`, `"8 ans 2 mois"`). Intégré au signalement patient. |
 | `templateId` | `string` | ✅ | UUID du template (depuis `listTemplates()`) |
 | `fileName` | `string` | — | Nom du fichier |
 | `callbackUrl` | `string` | — | Votre endpoint webhook (HTTPS, accessible publiquement) |
@@ -171,6 +173,8 @@ Démarrer un pipeline de transcription + génération de compte rendu.
 |-----|------|--------|-------------|
 | `audioFile` | `string` | ✅ | Valeur de `uploadAudio().path` |
 | `animalName` | `string` | ✅ | Nom de l'animal |
+| `animalBreed` | `string` | — | Race de l'animal (ex : `"Labrador Retriever"`). Injecté dans le signalement patient des prompts LLM. |
+| `animalAge` | `string` | — | Âge sous forme libre (ex : `"3 ans"`, `"6 mois"`). Injecté dans le signalement patient. |
 | `templateId` | `string` | ✅ | UUID du template |
 | `callbackUrl` | `string` | — | URL webhook (HTTPS, accessible publiquement). Utilise le webhook par défaut de l'organisation si omis. |
 | `metadata` | `Record<string, unknown>` | — | Données passthrough — pour corréler avec vos propres enregistrements |
@@ -224,12 +228,16 @@ Obtenir l'état actuel et le résultat d'un job.
 | `job_id`        |    ✅     |       ✅       |      ✅      |     ✅      |    ✅    |
 | `status`        |    ✅     |       ✅       |      ✅      |     ✅      |    ✅    |
 | `animal_name`   |    ✅     |       ✅       |      ✅      |     ✅      |    ✅    |
+| `animal_breed`  |    ✅†    |       ✅†      |      ✅†     |     ✅†     |    ✅†   |
+| `animal_age`    |    ✅†    |       ✅†      |      ✅†     |     ✅†     |    ✅†   |
 | `metadata`      |    ✅     |       ✅       |      ✅      |     ✅      |    ✅    |
 | `transcription` |     —     |       —        |      ✅      |     ✅      |    —     |
 | `result.html`   |     —     |       —        |      —       |     ✅      |    —     |
 | `result.fields` |     —     |       —        |      —       |    ✅\*     |    —     |
 | `cost`          |     —     |       —        |      —       |     ✅      |    —     |
 | `error`         |     —     |       —        |      —       |      —      |    ✅    |
+
+†`animal_breed` et `animal_age` sont présents uniquement si fournis lors de la création du job (sinon `null`).
 
 \*`result.fields` n'est présent que si votre organisation a un `field_schema` configuré (extraction de données structurées). Vaut `null` sinon. Voir [Schéma de champs](#5-schéma-de-champs) ci-dessous.
 
@@ -260,6 +268,8 @@ Poller jusqu'à ce qu'un job atteigne `completed` ou `failed`. Respecte `pollInt
   fields: ExtractedFields | null; // null si aucun field_schema configuré
   transcription: string;
   animalName: string;
+  animalBreed: string | null; // race, si fournie à la création
+  animalAge: string | null;   // âge, si fourni à la création
   cost: {
     transcription_usd: number;
     generation_usd: number;
@@ -336,7 +346,7 @@ Générer une version alternative d'un compte rendu terminé pour une audience s
 | `owner` | Version simplifiée pour le propriétaire de l'animal |
 | `referral` | Résumé clinique pour un spécialiste |
 | `summary` | Note interne courte |
-| `diagnostic_hypothesis` | Liste de diagnostics différentiels |
+| `diagnostic_hypothesis` | Liste de diagnostics différentiels — **enrichi par `animalBreed` + `animalAge`** : prédispositions raciales et pathologies liées à l'âge sont intégrées aux hypothèses |
 | `custom` | Défini par `customInstructions` |
 
 **Réponse (`ReqVetReformulation`) :**
@@ -438,6 +448,8 @@ X-ReqVet-Timestamp: <unix_ms>      (uniquement si l'organisation a un webhook_se
   "event": "job.completed",
   "job_id": "a1b2c3d4-...",
   "animal_name": "Rex",
+  "animal_breed": "Labrador Retriever",
+  "animal_age": "5 ans",
   "transcription": "Le vétérinaire examine Rex, labrador de 5 ans...",
   "html": "<section class=\"cr\">...</section>",
   "fields": { "espece": "Chien", "poids": 28.5 },
@@ -445,7 +457,7 @@ X-ReqVet-Timestamp: <unix_ms>      (uniquement si l'organisation a un webhook_se
 }
 ```
 
-> `fields` est absent si l'organisation n'a pas de `field_schema`. `cost` n'est pas dans le webhook — récupérez-le avec `getJob()` si nécessaire.
+> `fields` est absent si l'organisation n'a pas de `field_schema`. `animal_breed` et `animal_age` sont absents si non fournis à la création du job. `cost` n'est pas dans le webhook — récupérez-le avec `getJob()` si nécessaire.
 
 ---
 
@@ -456,6 +468,8 @@ X-ReqVet-Timestamp: <unix_ms>      (uniquement si l'organisation a un webhook_se
   "event": "job.failed",
   "job_id": "a1b2c3d4-...",
   "animal_name": "Rex",
+  "animal_breed": "Labrador Retriever",
+  "animal_age": "5 ans",
   "error": "Transcription failed",
   "metadata": { "consultationId": "abc123" }
 }
@@ -472,6 +486,8 @@ Envoyé quand un amendement (`amendJob`) se termine avec succès.
   "event": "job.amended",
   "job_id": "a1b2c3d4-...",
   "animal_name": "Rex",
+  "animal_breed": "Labrador Retriever",
+  "animal_age": "5 ans",
   "transcription": "...transcription complète incluant l'amendement...",
   "html": "<section class=\"cr\">...</section>",
   "amendment_number": 1,
@@ -507,6 +523,8 @@ Envoyé quand `regenerateJob()` se termine.
   "event": "job.regenerated",
   "job_id": "a1b2c3d4-...",
   "animal_name": "Rex",
+  "animal_breed": "Labrador Retriever",
+  "animal_age": "5 ans",
   "html": "<section class=\"cr\">...</section>",
   "fields": { "espece": "Chien", "poids": 28.5 },
   "metadata": { "consultationId": "abc123" }
@@ -644,6 +662,8 @@ async function transcribe(userId: string, audioBuffer: Buffer) {
   const job = await reqvet.createJob({
     audioFile: path,
     animalName: consultation.animalName,
+    animalBreed: consultation.animalBreed,  // depuis le profil patient
+    animalAge: consultation.animalAge,      // depuis le profil patient
     templateId: clinic.reqvet_template_id,
     callbackUrl: `https://votre-app.com/webhooks/reqvet`,
     metadata: { clinicId: clinic.id, userId },
@@ -911,6 +931,7 @@ await reseller.deactivateOrganization(orgId);
 
 - [ ] SDK utilisé **côté serveur uniquement** — clé API jamais dans les bundles navigateur
 - [ ] `listTemplates()` appelé au démarrage pour découvrir les `templateId` disponibles
+- [ ] `animalBreed` et `animalAge` transmis depuis le profil patient du logiciel vétérinaire — améliore la qualité des comptes rendus et des hypothèses diagnostiques
 - [ ] `metadata` utilisé pour corréler les jobs ReqVet avec vos propres enregistrements (`consultationId`, `vetId`, etc.)
 - [ ] L'endpoint webhook gère les 5 types d'événements : `job.completed`, `job.failed`, `job.amended`, `job.amend_failed`, `job.regenerated`
 - [ ] Signature webhook vérifiée sur chaque événement entrant

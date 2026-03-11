@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.0
+
+- **Feat** : ajout de `animalBreed` et `animalAge` sur `createJob()` et `generateReport()` — injectés dans les prompts LLM pour enrichir le contexte clinique (signalement patient, prédispositions raciales, pathologies liées à l'âge).
+- **Types** : `CreateJobParams`, `GenerateReportParams`, `JobSummary` et `ReqVetReport` mis à jour dans `index.d.ts`.
+- **Runtime** : `waitForJob()` retourne désormais `animalBreed` et `animalAge` dans le `ReqVetReport`.
+- **Webhooks** : `animal_breed` et `animal_age` inclus dans les payloads `job.completed`, `job.failed`, `job.amended`, `job.regenerated` (si fournis à la création).
+- **Docs** : `SDK_REFERENCE.md` mis à jour — tableaux de paramètres, réponses `getJob`/`waitForJob`, payloads webhook, note sur `diagnostic_hypothesis`, checklist et exemple partenaire.
+
 ## 2.2.1
 
 - **Feat** : ajout de `getSignedUploadUrl(fileName, contentType)` — obtenir une URL presignée Supabase pour uploader l'audio directement, sans passer par `/api/v1/upload` (Vercel Serverless Function, limite ~4.5 MB). Recommandé pour les proxies serveur (Next.js, Express…) gérant des fichiers > 4 MB.
